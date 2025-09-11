@@ -1,0 +1,51 @@
+# Virtual environment
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Config files (contains user-specific settings)
+config.json
+
+# Temporary files
+*.tmp
+*.log
+
+# Build files
+build/
+dist/
+*.egg-info/
+
+# Test output and processed files
+Test files/
+Test files_Processed/
+test_files/
+test_native_pdf/
+Problematic/
+
+# Processing output
+RR/
+Failures/
+*.json.log
+processing_*.txt
+processing_*.json
+debug_output.txt
+inspection_report_*.json
+quick_log.csv
+
+# Debug and test scripts
+debug_*.py
+test_*.py
+inspect_*.py
+scan_image_pipeline*.py

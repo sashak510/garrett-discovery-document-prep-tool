@@ -1,0 +1,26 @@
+# Garrett Discovery Document Prep Tool - Requirements
+# Python 3.13+ Required
+# Generated from working environment - ALL packages needed for full functionality
+
+# Core PDF Processing
+PyMuPDF==1.26.4
+PyPDF2==3.0.1
+reportlab==4.4.3
+
+# Image Processing & OCR
+pillow==11.3.0
+pytesseract==0.3.13
+
+# Document Processing
+python-docx==1.2.0
+openpyxl==3.1.5
+
+# Windows Integration (for desktop shortcuts)
+pywin32==308
+
+# Dependencies (automatically installed with above packages)
+charset-normalizer==3.4.3
+et_xmlfile==2.0.0
+lxml==6.0.1
+packaging==25.0
+typing_extensions==4.15.0

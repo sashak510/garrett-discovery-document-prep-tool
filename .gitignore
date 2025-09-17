@@ -33,6 +33,8 @@ Test files_Processed/
 test_files/
 test_native_pdf/
 Problematic/
+*Test files*/
+*test files*/
 
 # Processing output
 RR/
@@ -48,4 +50,3 @@ quick_log.csv
 debug_*.py
 test_*.py
 inspect_*.py
-scan_image_pipeline*.py

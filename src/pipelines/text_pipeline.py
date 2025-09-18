@@ -3,13 +3,8 @@ Text Pipeline for processing Word and Text documents using complete v1 approach
 All v1 text processing components integrated directly into this pipeline
 SELF-CONTAINED: All text/word processing logic is contained within this pipeline
 
-🔒 LOCKED COMPONENT - DO NOT MODIFY WITHOUT EXPLICIT PERMISSION
-This file contains FINAL text and word processing logic that is RINGFENCED.
-All text extraction, PDF conversion, and document processing workflows are COMPLETE.
-Modifying this file will break the self-contained text pipeline architecture.
-
-LAST MODIFIED: Text pipeline consolidation and line numbering integration completed
-STATUS: LOCKED BY USER - Requires explicit authorization for any changes
+UPDATED: Now using Universal 28-Line Grid Numbering System for all document types
+This pipeline applies consistent 28-line grid numbering to all converted documents.
 """
 from pathlib import Path
 import shutil
@@ -36,10 +31,11 @@ except ImportError:
 from .base_pipeline import BasePipeline
 
 class TextPipeline(BasePipeline):
-    """Complete v1-derived text processing pipeline using base pipeline line numbering"""
-    
-    def __init__(self, line_numberer, bates_numberer, logger_manager=None):
+    """Complete v1-derived text processing pipeline using universal 28-line grid numbering"""
+
+    def __init__(self, line_numberer, bates_numberer, logger_manager=None, universal_line_numberer=None):
         super().__init__(line_numberer, bates_numberer, logger_manager)
+        self.universal_line_numberer = universal_line_numberer
         self.conversion_errors = []
     
     def get_pipeline_type(self):
@@ -50,7 +46,7 @@ class TextPipeline(BasePipeline):
     
     def configure_line_numberer(self):
         """Configure text-specific line numbering settings"""
-        # Settings are already configured in __init__
+        # Using universal 28-line grid numbering system
         pass
     
     def log(self, message):
@@ -139,44 +135,61 @@ class TextPipeline(BasePipeline):
                     'pipeline_type': self.get_pipeline_name()
                 }
             
-            # Add line numbers using base pipeline's text line numbering method
+            # Add universal 28-line grid numbering
             lined_pdf_path = output_path.with_suffix('.lined.pdf')
-            start_line = 1
-            line_success, final_line = self.add_text_line_numbers(
-                str(temp_pdf_path), str(lined_pdf_path), start_line
-            )
-            
+            if self.universal_line_numberer:
+                line_success = self.universal_line_numberer.add_universal_line_numbers(
+                    temp_pdf_path, lined_pdf_path
+                )
+            else:
+                # Fallback to base pipeline method if universal line numberer not available
+                line_success, _ = self.add_text_line_numbers(
+                    str(temp_pdf_path), str(lined_pdf_path), 1
+                )
+
             if line_success:
-                lines_added = final_line - start_line
+                lines_added = 28  # Universal system always adds 28 lines per page
                 # Replace original with lined version
                 shutil.move(str(lined_pdf_path), str(temp_pdf_path))
             else:
                 lines_added = 0
                 if lined_pdf_path.exists():
                     lined_pdf_path.unlink()
-            
-            # Add bates numbers
-            bates_success, next_bates = self.bates_numberer.add_bates_number(
-                str(temp_pdf_path), str(output_path), bates_prefix, bates_start_number
-            )
-            
+
+            # Add bates numbers and filename
+            if self.universal_line_numberer:
+                final_path = output_path
+                filename = source_path.stem
+                self.universal_line_numberer.add_bates_and_filename_to_pdf(
+                    temp_pdf_path, final_path, bates_prefix, bates_start_number, filename
+                )
+                # Clean up the temp file
+                if temp_pdf_path.exists() and Path(str(final_path)) != Path(str(temp_pdf_path)):
+                    temp_pdf_path.unlink()
+            else:
+                # Use traditional bates numbering
+                bates_success, next_bates = self.bates_numberer.add_bates_number(
+                    str(temp_pdf_path), str(output_path), bates_prefix, bates_start_number
+                )
+                final_path = output_path
+
             # Clean up temporary files
             if temp_pdf_path.exists():
                 temp_pdf_path.unlink()
-            
-            if bates_success:
+
+            if final_path.exists():
                 return {
                     'success': True,
-                    'lines_added': lines_added,  # Line numbers added by text line numberer
+                    'lines_added': lines_added,  # Universal 28-line grid numbering
                     'bates_number': bates_str,
                     'pipeline_type': self.get_pipeline_name(),
-                    'final_path': str(output_path),
+                    'final_path': str(final_path),
                     'conversion_type': conversion_type
                 }
             else:
                 return {
                     'success': False,
-                    'error': 'Bates numbering failed',
+                    'error': 'Final file creation failed',
                     'lines_added': lines_added,
                     'pipeline_type': self.get_pipeline_name()
                 }

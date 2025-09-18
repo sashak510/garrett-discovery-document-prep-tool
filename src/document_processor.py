@@ -24,13 +24,16 @@ from logger_manager import LoggerManager
 from pipelines.text_pipeline import TextPipeline
 from pipelines.native_pdf_pipeline import NativePDFPipeline
 from pipelines.scan_image_pipeline import ScanImagePipeline
+from error_handling import ErrorHandler, ValidationError, ProcessingError
+from memory_manager import MemoryManager, MemoryConfig
+from universal_line_numbering import UniversalLineNumberer
 
 
 class GDIDocumentProcessor:
     """Main document preparation processor that coordinates all operations"""
     
-    def __init__(self, source_folder, bates_prefix, bates_start_number=1, file_naming_start=1, output_folder=None, 
-                 log_callback=None, line_numberer=None, bates_numberer=None):
+    def __init__(self, source_folder, bates_prefix, bates_start_number=1, file_naming_start=1, output_folder=None,
+                 log_callback=None, line_numberer=None, bates_numberer=None, file_limit=None):
         """
         Initialize the document preparation processor
         
@@ -43,12 +46,14 @@ class GDIDocumentProcessor:
             log_callback: Optional callback for logging messages
             line_numberer: Pre-configured LineNumberer instance (optional)
             bates_numberer: Pre-configured BatesNumberer instance (optional)
+            file_limit (int): Optional limit on number of files to process (None for all)
         """
         self.source_folder = Path(source_folder)
         self.bates_prefix = bates_prefix
         self.bates_start_number = bates_start_number
         self.file_naming_start = file_naming_start
         self.log_callback = log_callback
+        self.file_limit = file_limit
         
         # Create output folder path
         if output_folder:
@@ -60,10 +65,24 @@ class GDIDocumentProcessor:
         
         self.failures_folder = self.processed_folder / "Failures"
         
+        # Initialize error handler
+        self.error_handler = ErrorHandler(log_callback=log_callback)
+
+        # Initialize memory manager with optimized configuration
+        memory_config = MemoryConfig(
+            max_memory_percent=75.0,  # Conservative limit for stability
+            warning_percent=60.0,     # Early warning
+            batch_size=3,             # Small batches for large files
+            max_file_size_mb=50,      # Reasonable file size limit
+            enable_monitoring=True,   # Enable memory monitoring
+            cleanup_interval=5        # Clean up every 5 files
+        )
+        self.memory_manager = MemoryManager(memory_config, log_callback)
+
         # Initialize components
         self.file_scanner = FileScanner(log_callback=log_callback)
         self.pdf_converter = PDFConverter(log_callback=log_callback)
-        
+
         # Use pre-configured instances if provided, otherwise create new ones
         if line_numberer:
             self.line_numberer = line_numberer
@@ -71,20 +90,23 @@ class GDIDocumentProcessor:
             self.line_numberer.log_callback = log_callback
         else:
             self.line_numberer = LineNumberer(log_callback=log_callback)
-            
+
         if bates_numberer:
             self.bates_numberer = bates_numberer
             # Ensure the log callback is set
             self.bates_numberer.log_callback = log_callback
         else:
             self.bates_numberer = BatesNumberer(log_callback=log_callback)
-            
+
         self.logger_manager = LoggerManager(log_callback=log_callback)
-        
-        # Initialize separate pipelines
-        self.text_pipeline = TextPipeline(self.line_numberer, self.bates_numberer, self.logger_manager)
-        self.native_pdf_pipeline = NativePDFPipeline(self.line_numberer, self.bates_numberer, self.logger_manager)
-        self.scan_image_pipeline = ScanImagePipeline(self.line_numberer, self.bates_numberer, self.logger_manager)
+
+        # Initialize universal line numbering system
+        self.universal_line_numberer = UniversalLineNumberer(log_callback=log_callback)
+
+        # Initialize pipelines with universal line numbering system
+        self.text_pipeline = TextPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.universal_line_numberer)
+        self.native_pdf_pipeline = NativePDFPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.universal_line_numberer)
+        self.scan_image_pipeline = ScanImagePipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.universal_line_numberer)
         
         # Processing state
         self.found_files = []
@@ -114,65 +136,84 @@ class GDIDocumentProcessor:
     def process_all_documents(self):
         """
         Execute the complete document processing workflow with separate pipelines
-        
+
         Returns:
             bool: True if processing completed successfully
         """
         try:
+            # Validate input parameters before starting
+            validation_errors = self.error_handler.validate_input_parameters(
+                self.bates_prefix,
+                self.bates_start_number,
+                self.file_naming_start,
+                self.source_folder
+            )
+
+            if validation_errors:
+                error_msg = "Input validation failed:\\n" + "\\n".join(validation_errors)
+                self.logger_manager.log_processing_error("System", error_msg, "validation")
+                if self.log_callback:
+                    self.log_callback(f"❌ {error_msg}")
+                return False
+
             # Start logging session
             self.logger_manager.start_processing_session(
-                str(self.source_folder), 
-                self.bates_prefix, 
+                str(self.source_folder),
+                self.bates_prefix,
                 self.bates_start_number
             )
-            
-            # Step 1: Scan for files
-            if not self.should_continue:
-                return False
-            if not self._scan_files():
-                return False
-                
-            # Step 2: Create folder structure
-            if not self.should_continue:
-                return False
-            if not self._create_folder_structure():
-                return False
-                
-            # Step 3: Copy and rename files
-            if not self.should_continue:
-                return False
-            if not self._copy_and_rename_files():
-                return False
-                
-            # Step 4: Analyze PDF layouts for potential issues
-            if not self.should_continue:
-                return False
-            self._analyze_layouts()
-            
-                
-            # Step 5: Separate processing by file type
-            if not self.should_continue:
-                return False
-            if not self._process_by_type():
-                return False
-                
-            # Step 6: Create log files with calculated statistics
-            if not self.should_continue:
-                return False
-            stats = self.logger_manager.finalize_session()
-            if not self._create_log_files():
-                return False
-                
-            # Step 7: Create CSV log file with processing details (DISABLED)
-            # if not self.should_continue:
-            #     return False
-            # if not self._create_csv_log():
-            #     return False
-                
-            # Step 8: Clean up copied files from processed folder
-            if not self.should_continue:
-                return False
-            self._cleanup_copied_files()
+
+            # Start memory monitoring
+            with self.memory_manager.memory_monitoring():
+
+                # Step 1: Scan for files
+                if not self.should_continue:
+                    return False
+                if not self._scan_files():
+                    return False
+
+                # Step 2: Create folder structure
+                if not self.should_continue:
+                    return False
+                if not self._create_folder_structure():
+                    return False
+
+                # Step 3: Copy and rename files
+                if not self.should_continue:
+                    return False
+                if not self._copy_and_rename_files():
+                    return False
+
+                # Step 4: Analyze PDF layouts for potential issues
+                if not self.should_continue:
+                    return False
+                self._analyze_layouts()
+
+                # Step 5: Separate processing by file type
+                if not self.should_continue:
+                    return False
+                if not self._process_by_type():
+                    return False
+
+                # Step 6: Create log files with calculated statistics
+                if not self.should_continue:
+                    return False
+                stats = self.logger_manager.finalize_session()
+                if not self._create_log_files():
+                    return False
+
+                # Step 7: Create CSV log file with processing details (DISABLED)
+                # if not self.should_continue:
+                #     return False
+                # if not self._create_csv_log():
+                #     return False
+
+                # Step 8: Clean up copied files from processed folder
+                if not self.should_continue:
+                    return False
+                self._cleanup_copied_files()
+
+            # Memory monitoring automatically stops here
                 
             self.log(f"Process complete - {stats['total_files_processed']} files processed")
             
@@ -208,20 +249,39 @@ class GDIDocumentProcessor:
             return False
             
     def _create_folder_structure(self):
-        """Create output and Failures folders"""
+        """Create output and Failures folders with enhanced error handling"""
         try:
-            # Create output folder
-            self.processed_folder.mkdir(parents=True, exist_ok=True)
+            # Validate folder paths before creation
+            if not self.error_handler.validate_filename_safety(self.processed_folder.name):
+                raise ValidationError(f"Invalid output folder name: {self.processed_folder.name}")
+
+            if not self.error_handler.validate_filename_safety(self.failures_folder.name):
+                raise ValidationError(f"Invalid failures folder name: {self.failures_folder.name}")
+
+            # Create output folder with error handling
+            self.error_handler.safe_create_directory(self.processed_folder)
             self.log(f"Created output folder: {self.processed_folder}")
-            
-            # Create Failures subfolder
-            self.failures_folder.mkdir(parents=True, exist_ok=True)
+
+            # Create Failures subfolder with error handling
+            self.error_handler.safe_create_directory(self.failures_folder)
             self.log(f"Created Failures folder: {self.failures_folder}")
-            
+
+            # Verify folders were created successfully
+            if not self.processed_folder.exists():
+                raise ValidationError(f"Failed to create output folder: {self.processed_folder}")
+
+            if not self.failures_folder.exists():
+                raise ValidationError(f"Failed to create failures folder: {self.failures_folder}")
+
             return True
-            
+
+        except (ValidationError, ProcessingError) as e:
+            self.log(f"❌ Validation error creating folder structure: {str(e)}")
+            self.logger_manager.log_processing_error("System", str(e), "folder_creation")
+            return False
         except Exception as e:
-            self.log(f"Error creating folder structure: {str(e)}")
+            self.log(f"❌ Unexpected error creating folder structure: {str(e)}")
+            self.logger_manager.log_processing_error("System", str(e), "folder_creation")
             return False
             
     def _copy_and_rename_files(self):
@@ -232,42 +292,65 @@ class GDIDocumentProcessor:
             file_counter = self.file_naming_start  # Keep track for successful processing only
             unsupported_counter = 5000  # Start unsupported files at 5000
             
-            self.log(f"Copying {len(self.found_files)} files to processed folder (numbering will be applied only to successfully processed files)")
-            
-            for file_info in self.found_files:
+            # Apply file limit if specified
+            files_to_process = self.found_files
+            if self.file_limit and self.file_limit > 0:
+                files_to_process = self.found_files[:self.file_limit]
+                self.log(f"Processing limited to {len(files_to_process)} files (limit: {self.file_limit})")
+            else:
+                self.log(f"Copying {len(self.found_files)} files to processed folder (numbering will be applied only to successfully processed files)")
+
+            for file_info in files_to_process:
                 if not self.should_continue:
                     return False
                     
                 source_path = Path(file_info['path'])
                 
-                # Check if file is accessible
-                if not source_path.exists() or not file_info.get('is_readable', True):
+                # Enhanced file accessibility check
+                file_access_info = self.error_handler.validate_file_accessibility(source_path)
+                if not file_access_info['accessible']:
                     self.logger_manager.log_file_not_copied(
-                        str(source_path), 
-                        "File not accessible or readable"
+                        str(source_path),
+                        f"File not accessible: {file_access_info['error']}"
                     )
                     continue
-                    
+
                 try:
                     # Copy file with original name (no numbering yet)
                     original_name = source_path.name
+
+                    # Validate filename safety
+                    if not self.error_handler.validate_filename_safety(original_name):
+                        raise ValidationError(f"Invalid filename: {original_name}")
+
                     destination = self.processed_folder / original_name
-                    
-                    # Copy file
-                    shutil.copy2(source_path, destination)
-                    
+
+                    # Copy file with enhanced error handling
+                    self.error_handler.safe_copy_file(source_path, destination)
+
+                    # For non-PDF files, also copy as "original" with prefix
+                    if file_info.get('extension', '').lower() not in ['.pdf']:
+                        file_counter = len([f for f in self.copied_files if f.get('file_number')]) + self.file_naming_start
+                        original_prefix_name = f"original_{file_counter:04d}__{original_name}"
+                        original_destination = self.processed_folder / original_prefix_name
+
+                        # Copy as original file
+                        self.error_handler.safe_copy_file(source_path, original_destination)
+                        self.log(f"Preserved original: {original_prefix_name}")
+
                     # Track copied file (without file number yet)
                     copied_info = file_info.copy()
                     copied_info['copied_path'] = str(destination)
                     copied_info['original_path'] = str(source_path)
                     copied_info['file_number'] = None  # Will be assigned only on successful processing
+                    copied_info['original_name'] = original_name
                     self.copied_files.append(copied_info)
-                    
+
                     self.log(f"Copied: {original_name}")
-                    
+
                 except Exception as e:
                     self.logger_manager.log_file_not_copied(
-                        str(source_path), 
+                        str(source_path),
                         f"Copy error: {str(e)}"
                     )
                     continue
@@ -433,7 +516,8 @@ class GDIDocumentProcessor:
                         # Log success
                         line_range = f"1-{pipeline_result['lines_added']}" if pipeline_result['lines_added'] > 0 else "no lines"
                         bates_str = f"{self.bates_prefix}{self.bates_start_number:04d}"
-                        self.logger_manager.log_file_processed(str(final_path), bates_str, line_range)
+                        bates_range = pipeline_result.get('bates_range', bates_str)
+                        self.logger_manager.log_file_processed(str(final_path), bates_str, line_range, bates_range)
                         
                         self.log(f"✅ {file_type.title()}: {source_path.name} → {pipeline_result['lines_added']} lines → {final_filename}")
                         
@@ -560,7 +644,8 @@ class GDIDocumentProcessor:
                         # Log success
                         line_range = f"1-{pipeline_result['lines_added']}" if pipeline_result['lines_added'] > 0 else "no lines"
                         bates_full = f"{self.bates_prefix}{self.bates_start_number:04d}"
-                        self.logger_manager.log_file_processed(str(final_path), bates_full, line_range)
+                        bates_range = pipeline_result.get('bates_range', bates_full)
+                        self.logger_manager.log_file_processed(str(final_path), bates_full, line_range, bates_range)
                         
                         self.log(f"✅ {file_type.upper()}: {source_path.name} → {pipeline_result['lines_added']} lines → {final_filename}")
                         
@@ -750,9 +835,9 @@ class GDIDocumentProcessor:
                 if self._is_landscape_page(page):
                     landscape_pages += 1
             
-            # Consider it a landscape document if more than half the pages are landscape
-            # OR if any page is landscape and it's a single-page document
-            is_landscape = (landscape_pages > total_pages / 2) or (landscape_pages > 0 and total_pages == 1)
+            # Consider it a landscape document if more than 75% of pages are landscape
+            # Less aggressive threshold to avoid moving normal PDFs to failures
+            is_landscape = landscape_pages > total_pages * 0.75
             
             doc.close()
             
@@ -1264,8 +1349,8 @@ class GDIDocumentProcessor:
                         if not isinstance(total_lines, int):
                             total_lines = 0
                         
-                        # Get gutter width
-                        gutter_width_inches = self.line_numberer.legal_gutter_width / 72
+                        # Get gutter width from universal line numbering system
+                        gutter_width_inches = self.universal_line_numberer.legal_gutter_width / 72
                         
                         doc.close()
                         

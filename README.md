@@ -4,13 +4,13 @@ tive'Professional document processing tool for legal discovery with intelligent 
 
 ## Requirements
 
-- **Python 3.13+** (Required)
+- **Python 3.9+** (Enterprise Compatible)
 - Windows OS
 - Tesseract OCR (automatically installed)
 
 ## Installation
 
-1. **Install Python 3.13+**
+1. **Install Python 3.9+**
    - Download from [python.org](https://python.org)
    - ✅ Check "Add Python to PATH" during installation
 

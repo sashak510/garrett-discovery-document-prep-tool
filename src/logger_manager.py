@@ -165,22 +165,26 @@ class LoggerManager:
         self.processing_log['conversion_failures'].append(entry)
         self.log(f"Conversion failed: {Path(file_path).name} - {error}", 'ERROR')
         
-    def log_file_processed(self, file_path, bates_number, line_range=None):
+    def log_file_processed(self, file_path, bates_number, line_range=None, bates_range=None):
         """Log a successfully processed file"""
         entry = {
             'file': file_path,
             'bates_number': bates_number,
             'line_range': line_range,
+            'bates_range': bates_range,
             'timestamp': datetime.now().isoformat()
         }
         self.processing_log['files_processed'].append(entry)
-        
+
+        # Display bates range if available, otherwise use single bates number
+        display_bates = bates_range if bates_range else bates_number
+
         if line_range and line_range != "no lines":
-            self.log(f"Processed: {Path(file_path).name} - {bates_number} (lines {line_range})")
+            self.log(f"Processed: {Path(file_path).name} - {display_bates} (lines {line_range})")
         elif line_range == "no lines":
-            self.log(f"Processed: {Path(file_path).name} - {bates_number} (N/A)")
+            self.log(f"Processed: {Path(file_path).name} - {display_bates} (N/A)")
         else:
-            self.log(f"Processed: {Path(file_path).name} - {bates_number}")
+            self.log(f"Processed: {Path(file_path).name} - {display_bates}")
             
     def log_processing_error(self, file_path, error, operation):
         """Log a processing error"""

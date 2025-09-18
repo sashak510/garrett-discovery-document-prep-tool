@@ -7,6 +7,7 @@ import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Dict, Any, Optional
 import math
+from config import FOOTER_FONT_NAME, FOOTER_FONT_SIZE, FOOTER_FONT_COLOR
 
 
 class UniversalLineNumberer:
@@ -38,10 +39,39 @@ class UniversalLineNumberer:
         self.number_x_offset = 2  # Points from left edge of gutter
         self.number_y_offset = 3  # Points from line position
 
+        # Track processing to prevent duplication
+        self.processed_pages = set()
+        self.processed_documents = set()
+
     def log(self, message: str):
         """Log message with callback"""
         if self.log_callback:
             self.log_callback(message)
+
+    def _is_native_pdf(self, pdf_path: Path) -> bool:
+        """
+        Check if PDF is native (text-based) vs image-based
+        Returns True if PDF has extractable text content
+        """
+        try:
+            doc = fitz.open(str(pdf_path))
+            total_text = ""
+
+            # Check first few pages for text content
+            pages_to_check = min(3, len(doc))
+            for page_num in range(pages_to_check):
+                page = doc[page_num]
+                text = page.get_text()
+                total_text += text
+
+            doc.close()
+
+            # Consider it native if we found substantial text
+            return len(total_text.strip()) > 100
+
+        except Exception as e:
+            self.log(f"Error checking if PDF is native: {str(e)}")
+            return False  # Default to image-based processing if error
 
     def add_universal_line_numbers(self, input_pdf_path: Path, output_pdf_path: Path) -> bool:
         """
@@ -55,19 +85,46 @@ class UniversalLineNumberer:
             bool: True if successful
         """
         try:
+            # Check for double processing
+            doc_id = f"{input_pdf_path}_{input_pdf_path.stat().st_mtime}"
+            if doc_id in self.processed_documents:
+                self.log(f"⚠️ Document {input_pdf_path.name} already processed, skipping to prevent duplication")
+                return True
+
             self.log(f"Adding universal 28-line numbering to {input_pdf_path.name}")
 
             doc = fitz.open(str(input_pdf_path))
+            total_pages = len(doc)
 
-            for page_num in range(len(doc)):
+            # Clear processed pages tracking for this document
+            self.processed_pages.clear()
+
+            for page_num in range(total_pages):
                 page = doc[page_num]
-                # Create true gutter by expanding page and shifting content
-                self._create_true_gutter(page, input_pdf_path.name)
-                # Add line numbers to the gutter
-                self._add_grid_to_page(page, page_num + 1)
+
+                # Check if this page has already been processed
+                page_id = f"{input_pdf_path.name}_page_{page_num}"
+                if page_id in self.processed_pages:
+                    self.log(f"⚠️ Page {page_num + 1} already processed, skipping to prevent duplication")
+                    continue
+
+                # Mark page as processed
+                self.processed_pages.add(page_id)
+
+                # Use vector-based processing for native PDFs to avoid overlay issues
+                if page_num == 0 and self._is_native_pdf(input_pdf_path):
+                    self.log(f"📄 Using vector-based line numbering for native PDF {input_pdf_path.name}")
+                    self._add_vector_grid_to_page(page, page_num + 1)
+                else:
+                    # Use original image-based method for non-native PDFs or subsequent pages
+                    self._create_true_gutter(page, input_pdf_path.name)
+                    self._add_grid_to_page(page, page_num + 1)
 
             doc.save(str(output_pdf_path), garbage=4, deflate=True, clean=True)
             doc.close()
+
+            # Mark document as processed
+            self.processed_documents.add(doc_id)
 
             self.log(f"✅ Universal line numbering completed for {input_pdf_path.name}")
             return True
@@ -156,6 +213,98 @@ class UniversalLineNumberer:
             self.log(f"❌ Error adding line number {line_number}: {str(e)}")
             raise
 
+    def _add_vector_grid_to_page(self, page, page_number: int):
+        """Add 28-line grid numbers to a single page using vector operations (no image capture)"""
+        try:
+            # Get page dimensions
+            rect = page.rect
+            page_width = rect.width
+            page_height = rect.height
+
+            # Calculate line positions
+            start_y = (page_height - self.total_length) / 2  # Center the 10" length
+            if start_y < 0:
+                start_y = 0  # If page is shorter than 10", start at top
+
+            # Shift existing content right to make room for gutter
+            total_gutter_space = self.gutter_margin + self.gutter_width
+            new_page_width = page_width + total_gutter_space
+
+            # Save original page content as text blocks
+            text_blocks = page.get_text("blocks")
+            images = page.get_images()
+
+            # Clear and resize page
+            page.clean_contents()
+            page.set_cropbox(fitz.Rect(0, 0, new_page_width, page_height))
+            page.set_mediabox(fitz.Rect(0, 0, new_page_width, page_height))
+
+            # Re-insert text content shifted right
+            for block in text_blocks:
+                if len(block) >= 4:  # Valid text block
+                    x0, y0, x1, y1, text, block_no, block_type = block[:7]
+                    if text.strip():  # Only insert non-empty text
+                        new_x0 = x0 + total_gutter_space
+                        page.insert_text(
+                            fitz.Point(new_x0, y1),
+                            text,
+                            fontsize=8,  # Default font size
+                            color=(0, 0, 0),
+                            rotate=0,
+                            fontname="Times-Roman"
+                        )
+
+            # Re-insert images shifted right
+            for img in images:
+                try:
+                    # Get image rectangle
+                    img_rect = page.get_image_bbox(img)
+                    if img_rect.width > 0 and img_rect.height > 0:
+                        # Shift image right
+                        new_img_rect = fitz.Rect(
+                            img_rect.x0 + total_gutter_space,
+                            img_rect.y0,
+                            img_rect.x1 + total_gutter_space,
+                            img_rect.y1
+                        )
+                        # Re-insert image
+                        page.insert_image(new_img_rect, filename=img)
+                except Exception as e:
+                    self.log(f"Warning: Could not re-insert image: {str(e)}")
+
+            # Create the gutter (background rectangle)
+            gutter_rect = fitz.Rect(
+                self.gutter_margin,  # Left edge with margin
+                start_y,  # Top of grid
+                self.gutter_margin + self.gutter_width,  # Right edge (margin + gutter width)
+                start_y + self.total_length  # Bottom of grid
+            )
+
+            # Draw background
+            page.draw_rect(
+                gutter_rect,
+                color=self.background_color,
+                fill=self.background_color,
+                width=0
+            )
+
+            # Add line numbers
+            for line_num in range(1, self.lines_per_page + 1):
+                self._add_line_number(page, line_num, start_y)
+
+            # Add vertical separator line
+            separator_x = self.gutter_margin + self.gutter_width
+            page.draw_line(
+                fitz.Point(separator_x, start_y),
+                fitz.Point(separator_x, start_y + self.total_length),
+                color=(0.8, 0.8, 0.8),  # Light grey separator
+                width=0.5
+            )
+
+        except Exception as e:
+            self.log(f"❌ Error adding vector grid to page {page_number}: {str(e)}")
+            raise
+
     def _create_true_gutter(self, page, filename=None):
         """
         Create a true gutter by shifting existing content inward within standard 8.5x11 page dimensions.
@@ -190,7 +339,7 @@ class UniversalLineNumberer:
                 rotation_matrix = fitz.Matrix(1, 1)
                 pix = page.get_pixmap(matrix=rotation_matrix)
 
-            # Clear the page
+            # Clear the page contents properly
             page.clean_contents()
 
             # Calculate content position - shift right by margin + gutter width
@@ -264,6 +413,12 @@ class UniversalLineNumberer:
             bool: True if successful
         """
         try:
+            # Check for double processing
+            doc_id = f"{input_pdf_path}_{input_pdf_path.stat().st_mtime}_footer"
+            if doc_id in self.processed_documents:
+                self.log(f"⚠️ Document {input_pdf_path.name} footer already processed, skipping to prevent duplication")
+                return True
+
             self.log(f"Adding Bates number and filename to {input_pdf_path.name}")
 
             doc = fitz.open(str(input_pdf_path))
@@ -279,6 +434,9 @@ class UniversalLineNumberer:
 
             doc.save(str(output_pdf_path), garbage=4, deflate=True, clean=True)
             doc.close()
+
+            # Mark document footer as processed
+            self.processed_documents.add(doc_id)
 
             self.log(f"✅ Bates numbering and filename display completed for {input_pdf_path.name}")
             return True
@@ -296,94 +454,89 @@ class UniversalLineNumberer:
             page_width = rect.width
             page_height = rect.height
 
-            # Define common vertical alignment (same height for both elements)
-            bottom_margin = 20  # Moved closer to bottom edge (printer-safe margin)
-            text_baseline_y = page_height - bottom_margin  # Baseline for text
+            # Define 1/4 inch margins (18 points) - outside edge of rectangles
+            margin_1_4_inch = 18  # 0.25 * 72 points
 
-            # Background color (light grey)
+            # Define vertical positioning - bottom edge of boxes 1/4 inch above document bottom
+            bottom_box_margin = 18  # 0.25 inch from bottom edge
+
+            # Background color and padding
             bg_color = (0.9, 0.9, 0.9)  # Light grey background
-            padding_h = 6  # Horizontal padding
-            padding_v = 3  # Even vertical padding (3px above and below)
+            horizontal_padding = 6  # Horizontal padding for readability
+            vertical_padding = 2  # Vertical padding as requested
 
-            # Calculate text dimensions first
+            # Calculate text dimensions - more accurate width calculation
             filename_text = f"{filename} (Page {page_number} of {total_pages})"
-            filename_width = len(filename_text) * 4.2  # Width approximation for 7pt helvetica
-            font_size_filename = 7
+            filename_width = len(filename_text) * 4.2  # More accurate width for Times-Roman 8pt
+            font_size = FOOTER_FONT_SIZE
 
             bates_text = f"{bates_prefix}{bates_number:04d}"
-            bates_width = len(bates_text) * 4.8  # Width approximation for Times-Roman 8pt
-            font_size_bates = 8
+            bates_width = len(bates_text) * 4.2  # More accurate width for Times-Roman 8pt
 
-            # Calculate dynamic positioning: both elements equidistant from edges
-            # and push inward when text gets longer
-            base_margin = 36  # Base margin from edge (0.5 inch)
-            
-            # Calculate the maximum width needed for either element
-            max_text_width = max(filename_width, bates_width)
-            
-            # Calculate dynamic margin: base margin + extra space for longer text
-            # This ensures both elements are equidistant and push inward when text is longer
-            dynamic_margin = base_margin + max(0, (max_text_width - min(filename_width, bates_width)) / 2)
-            
-            # Position filename from left edge
-            left_margin = dynamic_margin
-            
-            # Position Bates number from right edge (same distance)
-            right_margin = dynamic_margin
+            # Calculate text height (approximate for centering)
+            text_height = font_size * 1.2  # Approximate text height with line spacing
 
-            # Adjust horizontal padding to be slightly less on left side
-            padding_left = 5  # Slightly less padding on left
-            padding_right = 6  # Standard padding on right
+            # Calculate rectangle dimensions
+            filename_rect_width = filename_width + (2 * horizontal_padding)
+            filename_rect_height = text_height + (2 * vertical_padding)
 
-            # Use consistent box height for both elements to ensure uniform padding
-            box_height = 12  # Fixed height for both boxes (accommodates larger font)
+            bates_rect_width = bates_width + (2 * horizontal_padding)
+            bates_rect_height = text_height + (2 * vertical_padding)
 
-            # Calculate background rectangles with asymmetric padding
+            # Position filename rectangle: left edge at 1/4 inch margin, extending right
+            # Bottom edge 1/4 inch above document bottom
+            filename_rect_x = margin_1_4_inch
+            filename_rect_y = page_height - bottom_box_margin - filename_rect_height
+
+            # Position Bates rectangle: right edge at 1/4 inch margin from right, extending left
+            # Bottom edge 1/4 inch above document bottom
+            bates_rect_x = page_width - margin_1_4_inch - bates_rect_width
+            bates_rect_y = page_height - bottom_box_margin - bates_rect_height
+
+            # Create rectangle objects
             filename_bg_rect = fitz.Rect(
-                left_margin - padding_left,
-                text_baseline_y - box_height + padding_v,  # Top edge
-                left_margin + filename_width + padding_right,
-                text_baseline_y + padding_v  # Bottom edge
+                filename_rect_x,
+                filename_rect_y,
+                filename_rect_x + filename_rect_width,
+                filename_rect_y + filename_rect_height
             )
 
-            bates_x = page_width - right_margin - bates_width
             bates_bg_rect = fitz.Rect(
-                bates_x - padding_left,
-                text_baseline_y - box_height + padding_v,  # Top edge
-                bates_x + bates_width + padding_right,
-                text_baseline_y + padding_v  # Bottom edge
+                bates_rect_x,
+                bates_rect_y,
+                bates_rect_x + bates_rect_width,
+                bates_rect_y + bates_rect_height
             )
 
-            # Draw light grey backgrounds first (so text appears on top)
+            # Draw background rectangles (no white gap between them)
             page.draw_rect(filename_bg_rect, color=bg_color, fill=bg_color, width=0)
             page.draw_rect(bates_bg_rect, color=bg_color, fill=bg_color, width=0)
 
-            # Calculate consistent vertical center for both text elements
-            # Position text properly within boxes without going past edges
-            # Use proper centering: box_height/2 from baseline, adjusted for visual center
-            text_center_y = text_baseline_y - (box_height / 2) + 5.5  # Move down by 5.5 points for visual center
+            # Calculate text positions (perfectly centered within rectangles)
+            filename_text_x = filename_rect_x + (filename_rect_width - filename_width) / 2  # Center horizontally
+            filename_text_y = filename_rect_y + (filename_rect_height / 2) + (font_size / 3)  # Center vertically with baseline adjustment
 
-            # For Bates number, use same centering logic for consistency
-            bates_text_y = text_baseline_y - (box_height / 2) + 5.5  # Move down by 5.5 points for visual center
+            bates_text_x = bates_rect_x + (bates_rect_width - bates_width) / 2  # Center horizontally
+            bates_text_y = bates_rect_y + (bates_rect_height / 2) + (font_size / 3)  # Center vertically with baseline adjustment
 
-            # Add filename text - vertically centered within consistent box height
+            # Add filename text (perfectly centered)
             page.insert_text(
-                fitz.Point(left_margin, text_center_y),
+                fitz.Point(filename_text_x, filename_text_y),
                 filename_text,
-                fontsize=font_size_filename,
-                color=(0.3, 0.3, 0.3),  # Dark grey
+                fontsize=font_size,
+                color=FOOTER_FONT_COLOR,
                 rotate=0,
-                fontname="helv"
+                fontname=FOOTER_FONT_NAME
             )
 
-            # Add Bates number text - vertically centered within consistent box height
+            # Add Bates number text (perfectly centered)
             page.insert_text(
-                fitz.Point(bates_x, bates_text_y),
+                fitz.Point(bates_text_x, bates_text_y),
                 bates_text,
-                fontsize=font_size_bates,
-                color=(0, 0, 0),  # Black text
+                fontsize=font_size,
+                color=FOOTER_FONT_COLOR,
                 rotate=0,
-                fontname="Times-Roman"  # Times New Roman font
+                fontname=FOOTER_FONT_NAME
             )
 
         except Exception as e:

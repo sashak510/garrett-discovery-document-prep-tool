@@ -73,6 +73,41 @@ class UniversalLineNumberer:
             self.log(f"Error checking if PDF is native: {str(e)}")
             return False  # Default to image-based processing if error
 
+    def _map_font_name(self, original_font: str) -> str:
+        """
+        Map various font names to PyMuPDF compatible font names
+        """
+        # Convert to lowercase for case-insensitive matching
+        font_lower = original_font.lower()
+
+        # Mapping dictionary
+        font_mapping = {
+            'times': 'times-roman',
+            'timesnewroman': 'times-roman',
+            'times new roman': 'times-roman',
+            'arial': 'helv',
+            'helvetica': 'helv',
+            'courier': 'cour',
+            'courier new': 'cour',
+            'dejavu': 'helv',  # Map DejaVu fonts to Helvetica
+            'dejavusans': 'helv',
+            'dejavusanscondensed': 'helv',
+            'symbol': 'symb',
+            'zapfdingbats': 'zapfd'
+        }
+
+        # Check for exact matches
+        if font_lower in font_mapping:
+            return font_mapping[font_lower]
+
+        # Check for partial matches
+        for key, value in font_mapping.items():
+            if key in font_lower:
+                return value
+
+        # Default fallback
+        return 'times-roman'
+
     def add_universal_line_numbers(self, input_pdf_path: Path, output_pdf_path: Path) -> bool:
         """
         Add universal 28-line grid numbering to all pages of a PDF
@@ -85,36 +120,18 @@ class UniversalLineNumberer:
             bool: True if successful
         """
         try:
-            # Check for double processing
-            doc_id = f"{input_pdf_path}_{input_pdf_path.stat().st_mtime}"
-            if doc_id in self.processed_documents:
-                self.log(f"⚠️ Document {input_pdf_path.name} already processed, skipping to prevent duplication")
-                return True
-
             self.log(f"Adding universal 28-line numbering to {input_pdf_path.name}")
 
             doc = fitz.open(str(input_pdf_path))
             total_pages = len(doc)
 
-            # Clear processed pages tracking for this document
-            self.processed_pages.clear()
-
             for page_num in range(total_pages):
                 page = doc[page_num]
 
-                # Check if this page has already been processed
-                page_id = f"{input_pdf_path.name}_page_{page_num}"
-                if page_id in self.processed_pages:
-                    self.log(f"⚠️ Page {page_num + 1} already processed, skipping to prevent duplication")
-                    continue
-
-                # Mark page as processed
-                self.processed_pages.add(page_id)
-
-                # Use vector-based processing for native PDFs to avoid overlay issues
+                # Use hybrid processing for native PDFs: vector content + image-based line numbers
                 if page_num == 0 and self._is_native_pdf(input_pdf_path):
-                    self.log(f"📄 Using vector-based line numbering for native PDF {input_pdf_path.name}")
-                    self._add_vector_grid_to_page(page, page_num + 1)
+                    self.log(f"📄 Using hybrid line numbering for native PDF {input_pdf_path.name}")
+                    self._add_hybrid_grid_to_page(page, page_num + 1)
                 else:
                     # Use original image-based method for non-native PDFs or subsequent pages
                     self._create_true_gutter(page, input_pdf_path.name)
@@ -122,9 +139,6 @@ class UniversalLineNumberer:
 
             doc.save(str(output_pdf_path), garbage=4, deflate=True, clean=True)
             doc.close()
-
-            # Mark document as processed
-            self.processed_documents.add(doc_id)
 
             self.log(f"✅ Universal line numbering completed for {input_pdf_path.name}")
             return True
@@ -213,8 +227,8 @@ class UniversalLineNumberer:
             self.log(f"❌ Error adding line number {line_number}: {str(e)}")
             raise
 
-    def _add_vector_grid_to_page(self, page, page_number: int):
-        """Add 28-line grid numbers to a single page using vector operations (no image capture)"""
+    def _add_hybrid_grid_to_page(self, page, page_number: int):
+        """Add 28-line grid numbers using hybrid approach: vector content + image-based line numbers"""
         try:
             # Get page dimensions
             rect = page.rect
@@ -230,29 +244,70 @@ class UniversalLineNumberer:
             total_gutter_space = self.gutter_margin + self.gutter_width
             new_page_width = page_width + total_gutter_space
 
-            # Save original page content as text blocks
-            text_blocks = page.get_text("blocks")
+            # Save original page content with detailed text information
+            text_dict = page.get_text("dict")
             images = page.get_images()
 
             # Clear and resize page
             page.clean_contents()
-            page.set_cropbox(fitz.Rect(0, 0, new_page_width, page_height))
-            page.set_mediabox(fitz.Rect(0, 0, new_page_width, page_height))
+            # Set both MediaBox and CropBox to the new expanded size
+            new_rect = fitz.Rect(0, 0, new_page_width, page_height)
+            page.set_mediabox(new_rect)
+            page.set_cropbox(new_rect)
 
-            # Re-insert text content shifted right
-            for block in text_blocks:
-                if len(block) >= 4:  # Valid text block
-                    x0, y0, x1, y1, text, block_no, block_type = block[:7]
-                    if text.strip():  # Only insert non-empty text
-                        new_x0 = x0 + total_gutter_space
-                        page.insert_text(
-                            fitz.Point(new_x0, y1),
-                            text,
-                            fontsize=8,  # Default font size
-                            color=(0, 0, 0),
-                            rotate=0,
-                            fontname="Times-Roman"
-                        )
+            # Re-insert text content shifted right with proper formatting
+            for block in text_dict["blocks"]:
+                if "lines" in block:
+                    for line in block["lines"]:
+                        for span in line["spans"]:
+                            text = span["text"]
+                            if text.strip():  # Only insert non-empty text
+                                # Get original text properties
+                                orig_bbox = span["bbox"]
+                                font_size = span["size"]
+                                font_name = span.get("font", "Times-Roman")
+                                color = span.get("color", (0, 0, 0))
+
+                                # Calculate new position (shifted right)
+                                new_x = orig_bbox[0] + total_gutter_space
+                                # Use bottom of bbox for baseline positioning (more accurate)
+                                new_y = orig_bbox[3]
+
+                                # Re-insert text with original formatting
+                                # Map font names to PyMuPDF compatible names
+                                mapped_font = self._map_font_name(font_name)
+
+                                # Convert color to proper RGB format (0-1 range)
+                                if isinstance(color, (int, float)):
+                                    # Convert integer color to RGB
+                                    if color == 0:
+                                        text_color = (0, 0, 0)  # Black
+                                    else:
+                                        # Convert from integer format (like 3355443) to RGB
+                                        r = ((color >> 16) & 255) / 255.0
+                                        g = ((color >> 8) & 255) / 255.0
+                                        b = (color & 255) / 255.0
+                                        text_color = (r, g, b)
+                                elif isinstance(color, (list, tuple)):
+                                    if len(color) >= 3:
+                                        # Convert to 0-1 range if needed
+                                        if color[0] > 1 or color[1] > 1 or color[2] > 1:
+                                            text_color = (color[0] / 255.0, color[1] / 255.0, color[2] / 255.0)
+                                        else:
+                                            text_color = (color[0], color[1], color[2])
+                                    else:
+                                        text_color = (0, 0, 0)
+                                else:
+                                    text_color = (0, 0, 0)  # Default black
+
+                                page.insert_text(
+                                    fitz.Point(new_x, new_y),
+                                    text,
+                                    fontsize=font_size,
+                                    color=text_color,
+                                    rotate=0,
+                                    fontname=mapped_font
+                                )
 
             # Re-insert images shifted right
             for img in images:
@@ -272,7 +327,7 @@ class UniversalLineNumberer:
                 except Exception as e:
                     self.log(f"Warning: Could not re-insert image: {str(e)}")
 
-            # Create the gutter (background rectangle)
+            # Create the gutter background
             gutter_rect = fitz.Rect(
                 self.gutter_margin,  # Left edge with margin
                 start_y,  # Top of grid
@@ -288,9 +343,14 @@ class UniversalLineNumberer:
                 width=0
             )
 
-            # Add line numbers
-            for line_num in range(1, self.lines_per_page + 1):
-                self._add_line_number(page, line_num, start_y)
+            # Create line numbers as an image and overlay them
+            try:
+                self._add_line_numbers_as_image(page, start_y)
+            except Exception as e:
+                self.log(f"Warning: Could not create line numbers as image, falling back to vector: {str(e)}")
+                # Fallback to vector line numbers
+                for line_num in range(1, self.lines_per_page + 1):
+                    self._add_line_number(page, line_num, start_y)
 
             # Add vertical separator line
             separator_x = self.gutter_margin + self.gutter_width
@@ -302,8 +362,104 @@ class UniversalLineNumberer:
             )
 
         except Exception as e:
-            self.log(f"❌ Error adding vector grid to page {page_number}: {str(e)}")
+            self.log(f"❌ Error adding hybrid grid to page {page_number}: {str(e)}")
             raise
+
+    def _add_line_numbers_as_image(self, page, start_y: float):
+        """Create line numbers as an image and overlay them to maintain image-based appearance"""
+        try:
+            import tempfile
+            from PIL import Image, ImageDraw, ImageFont
+
+            # Create a temporary image for the line numbers
+            img_width = self.gutter_width
+            img_height = self.total_length
+
+            # Create transparent background image (to blend with gutter background)
+            line_numbers_img = Image.new('RGBA', (int(img_width), int(img_height)), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(line_numbers_img)
+
+            # Try to use Times New Roman font, fallback to default
+            font = None
+            try:
+                font = ImageFont.truetype("times.ttf", self.font_size)
+            except:
+                try:
+                    font = ImageFont.truetype("/System/Library/Fonts/Times.ttc", self.font_size)
+                except:
+                    try:
+                        font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", self.font_size)
+                    except:
+                        try:
+                            font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", self.font_size)
+                        except:
+                            # Use default font but with specified size
+                            try:
+                                font = ImageFont.load_default()
+                                # Try to get a reasonable size
+                                if hasattr(font, 'size'):
+                                    font.size = self.font_size
+                            except:
+                                pass
+
+            if font is None:
+                raise Exception("Could not load any font")
+
+            # Draw line numbers
+            for line_num in range(1, self.lines_per_page + 1):
+                y_position = (line_num - 0.5) * self.line_height
+
+                # Format the number
+                number_text = str(line_num)
+                digit_count = len(number_text)
+
+                # Calculate X position for centering based on digit count
+                char_width = 4.8  # Approximate width of each character in points
+                text_width = digit_count * char_width
+                x_position = (self.gutter_width - text_width) / 2
+
+                # Convert to pixels for PIL (assuming 72 DPI)
+                x_pixel = int(x_position)
+                y_pixel = int(y_position)
+
+                # Draw the number in grey (same color as vector line numbers)
+                draw.text((x_pixel, y_pixel), number_text, font=font, fill=(128, 128, 128, 255))
+
+            # Save the image to a temporary file
+            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
+                line_numbers_img.save(tmp_file.name, 'PNG')
+                tmp_path = tmp_file.name
+
+            # Convert PIL image to pixmap for PyMuPDF
+            import io
+            img_byte_arr = io.BytesIO()
+            line_numbers_img.save(img_byte_arr, format='PNG')
+            img_byte_arr = img_byte_arr.getvalue()
+
+            # Create pixmap from image data
+            line_numbers_pix = fitz.Pixmap(img_byte_arr)
+
+            # Calculate position for line numbers image
+            line_numbers_rect = fitz.Rect(
+                self.gutter_margin,  # Left edge with margin
+                start_y,  # Top of grid
+                self.gutter_margin + self.gutter_width,  # Right edge
+                start_y + self.total_length  # Bottom of grid
+            )
+
+            # Insert the line numbers image
+            page.insert_image(line_numbers_rect, pixmap=line_numbers_pix)
+
+            # Clean up
+            line_numbers_pix = None
+            import os
+            os.unlink(tmp_path)
+
+        except Exception as e:
+            self.log(f"❌ Error creating line numbers as image: {str(e)}")
+            # Fallback to vector line numbers
+            for line_num in range(1, self.lines_per_page + 1):
+                self._add_line_number(page, line_num, start_y)
 
     def _create_true_gutter(self, page, filename=None):
         """
@@ -413,12 +569,6 @@ class UniversalLineNumberer:
             bool: True if successful
         """
         try:
-            # Check for double processing
-            doc_id = f"{input_pdf_path}_{input_pdf_path.stat().st_mtime}_footer"
-            if doc_id in self.processed_documents:
-                self.log(f"⚠️ Document {input_pdf_path.name} footer already processed, skipping to prevent duplication")
-                return True
-
             self.log(f"Adding Bates number and filename to {input_pdf_path.name}")
 
             doc = fitz.open(str(input_pdf_path))
@@ -432,11 +582,8 @@ class UniversalLineNumberer:
                 self._add_footer_with_background(page, filename, bates_prefix, current_bates,
                                                page_num + 1, total_pages)
 
-            doc.save(str(output_pdf_path), garbage=4, deflate=True, clean=True)
+            doc.save(str(output_path), garbage=4, deflate=True, clean=True)
             doc.close()
-
-            # Mark document footer as processed
-            self.processed_documents.add(doc_id)
 
             self.log(f"✅ Bates numbering and filename display completed for {input_pdf_path.name}")
             return True
@@ -460,28 +607,40 @@ class UniversalLineNumberer:
             # Define vertical positioning - bottom edge of boxes 1/4 inch above document bottom
             bottom_box_margin = 18  # 0.25 inch from bottom edge
 
-            # Background color and padding
+            # Background color
             bg_color = (0.9, 0.9, 0.9)  # Light grey background
-            horizontal_padding = 6  # Horizontal padding for readability
-            vertical_padding = 2  # Vertical padding as requested
 
-            # Calculate text dimensions - more accurate width calculation
+            # Calculate text dimensions - simple and reliable approach
             filename_text = f"{filename} (Page {page_number} of {total_pages})"
-            filename_width = len(filename_text) * 4.2  # More accurate width for Times-Roman 8pt
             font_size = FOOTER_FONT_SIZE
 
+            # Use a conservative but accurate character width for Times-Roman 8pt
+            # This avoids temporary page creation issues while being reasonably accurate
+            char_width = 4.3  # Slightly reduced from previous attempts
+            filename_width = len(filename_text) * char_width
+
             bates_text = f"{bates_prefix}{bates_number:04d}"
-            bates_width = len(bates_text) * 4.2  # More accurate width for Times-Roman 8pt
+            # Keep Bates number calculation locked (it's perfect)
+            bates_width = len(bates_text) * 4.2  # Width for Times-Roman 8pt (locked - don't change)
+
+            # Separate padding for filename and Bates number
+            filename_horizontal_padding = 6  # Horizontal padding for filename
+            filename_vertical_padding = 2  # Vertical padding for filename
+
+            # BATES NUMBER - LOCKED (DO NOT CHANGE)
+            # Current Bates number positioning is perfect - DO NOT MODIFY THESE VALUES
+            bates_horizontal_padding = 4  # Locked: Perfect horizontal padding for Bates
+            bates_vertical_padding = 2   # Locked: Perfect vertical padding for Bates
 
             # Calculate text height (approximate for centering)
             text_height = font_size * 1.2  # Approximate text height with line spacing
 
-            # Calculate rectangle dimensions
-            filename_rect_width = filename_width + (2 * horizontal_padding)
-            filename_rect_height = text_height + (2 * vertical_padding)
+            # Calculate rectangle dimensions - separate for each element
+            filename_rect_width = filename_width + (2 * filename_horizontal_padding)
+            filename_rect_height = text_height + (2 * filename_vertical_padding)
 
-            bates_rect_width = bates_width + (2 * horizontal_padding)
-            bates_rect_height = text_height + (2 * vertical_padding)
+            bates_rect_width = bates_width + (2 * bates_horizontal_padding)
+            bates_rect_height = text_height + (2 * bates_vertical_padding)
 
             # Position filename rectangle: left edge at 1/4 inch margin, extending right
             # Bottom edge 1/4 inch above document bottom
@@ -508,35 +667,37 @@ class UniversalLineNumberer:
                 bates_rect_y + bates_rect_height
             )
 
-            # Draw background rectangles (no white gap between them)
-            page.draw_rect(filename_bg_rect, color=bg_color, fill=bg_color, width=0)
-            page.draw_rect(bates_bg_rect, color=bg_color, fill=bg_color, width=0)
+            # DISABLED: Background rectangles (commented out but preserved for future use)
+            # page.draw_rect(filename_bg_rect, color=bg_color, fill=bg_color, width=0)
+            # page.draw_rect(bates_bg_rect, color=bg_color, fill=bg_color, width=0)
 
             # Calculate text positions (perfectly centered within rectangles)
             filename_text_x = filename_rect_x + (filename_rect_width - filename_width) / 2  # Center horizontally
             filename_text_y = filename_rect_y + (filename_rect_height / 2) + (font_size / 3)  # Center vertically with baseline adjustment
 
-            bates_text_x = bates_rect_x + (bates_rect_width - bates_width) / 2  # Center horizontally
-            bates_text_y = bates_rect_y + (bates_rect_height / 2) + (font_size / 3)  # Center vertically with baseline adjustment
+            # BATES NUMBER TEXT POSITIONING - LOCKED (DO NOT CHANGE)
+            # Current Bates number text positioning is perfect - DO NOT MODIFY THESE CALCULATIONS
+            bates_text_x = bates_rect_x + (bates_rect_width - bates_width) / 2  # Locked: Perfect horizontal centering
+            bates_text_y = bates_rect_y + (bates_rect_height / 2) + (font_size / 3)  # Locked: Perfect vertical centering
 
-            # Add filename text (perfectly centered)
+            # Add filename text (perfectly centered) - BOLD
             page.insert_text(
                 fitz.Point(filename_text_x, filename_text_y),
                 filename_text,
                 fontsize=font_size,
                 color=FOOTER_FONT_COLOR,
                 rotate=0,
-                fontname=FOOTER_FONT_NAME
+                fontname="Times-Bold"  # Changed to bold font
             )
 
-            # Add Bates number text (perfectly centered)
+            # Add Bates number text (perfectly centered) - BOLD
             page.insert_text(
                 fitz.Point(bates_text_x, bates_text_y),
                 bates_text,
                 fontsize=font_size,
                 color=FOOTER_FONT_COLOR,
                 rotate=0,
-                fontname=FOOTER_FONT_NAME
+                fontname="Times-Bold"  # Changed to bold font
             )
 
         except Exception as e:

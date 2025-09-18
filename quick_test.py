@@ -35,7 +35,7 @@ def main():
     args = parser.parse_args()
 
     print("=== Garrett Discovery Document Prep Tool - Quick Test ===")
-    print("Updated with universal 28-line grid numbering and enhanced features")
+    print("Updated with image-based line numbering and universal 28-line grid")
     print()
 
     # Fixed configuration
@@ -59,6 +59,7 @@ def main():
         print(f"File limit: All files")
     print()
     print("Features tested:")
+    print("✅ Image-based line numbering (PNG overlay)")
     print("✅ Universal 28-line grid numbering")
     print("✅ Original file preservation (prefix: original_<number>__<filename>)")
     print("✅ Filename display bottom left")
@@ -116,7 +117,7 @@ def main():
         if success:
             print("✅ Document processing completed successfully!")
             print("\nResults:")
-            print("📄 Processed PDFs with 28-line grid numbering")
+            print("📄 Processed PDFs with image-based line numbering overlay")
             print("📁 Original files preserved with 'original_' prefix")
             print("🏷️  Bates numbers applied (bottom right)")
             print("📝 Filenames displayed (bottom left)")

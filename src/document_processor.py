@@ -27,6 +27,7 @@ from pipelines.scan_image_pipeline import ScanImagePipeline
 from error_handling import ErrorHandler, ValidationError, ProcessingError
 from memory_manager import MemoryManager, MemoryConfig
 from universal_line_numbering import UniversalLineNumberer
+from image_line_numbering import ImageLineNumberer
 
 
 class GDIDocumentProcessor:
@@ -100,13 +101,16 @@ class GDIDocumentProcessor:
 
         self.logger_manager = LoggerManager(log_callback=log_callback)
 
-        # Initialize universal line numbering system
+        # Initialize image-based line numbering system
+        self.image_line_numberer = ImageLineNumberer(log_callback=log_callback)
+
+        # Initialize universal line numbering system (for compatibility)
         self.universal_line_numberer = UniversalLineNumberer(log_callback=log_callback)
 
-        # Initialize pipelines with universal line numbering system
-        self.text_pipeline = TextPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.universal_line_numberer)
-        self.native_pdf_pipeline = NativePDFPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.universal_line_numberer)
-        self.scan_image_pipeline = ScanImagePipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.universal_line_numberer)
+        # Initialize pipelines with image-based line numbering system
+        self.text_pipeline = TextPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.image_line_numberer)
+        self.native_pdf_pipeline = NativePDFPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.image_line_numberer)
+        self.scan_image_pipeline = ScanImagePipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.image_line_numberer)
         
         # Processing state
         self.found_files = []

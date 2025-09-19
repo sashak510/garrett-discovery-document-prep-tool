@@ -197,9 +197,11 @@ class NativePDFPipeline(BasePipeline):
             
             # Convert first page to image for Tesseract orientation detection
             with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_img:
-                pix = first_page.get_pixmap(matrix=fitz.Matrix(2, 2))  # 2x scale for better OCR
+                # Use higher resolution for better OCR detection
+                pix = first_page.get_pixmap(matrix=fitz.Matrix(3, 3))  # 3x scale for better OCR
                 pix.save(tmp_img.name)
                 tmp_img_path = tmp_img.name
+                self.log(f"   Created temp image for OCR: {tmp_img.name} ({pix.width}x{pix.height})")
             
             doc.close()
             
@@ -300,59 +302,3 @@ class NativePDFPipeline(BasePipeline):
             self.log(f"❌ Traceback: {traceback.format_exc()}")
             raise
     
-    def _detect_rotation_from_filename_and_metadata(self, pdf_path: str) -> int:
-        """
-        Fallback method to detect rotation from filename patterns and PDF metadata
-        when Tesseract is not available
-        
-        Args:
-            pdf_path: Path to PDF file
-            
-        Returns:
-            int: Rotation degrees (0, 90, 180, 270)
-        """
-        try:
-            filename = os.path.basename(pdf_path).lower()
-            
-            # Check filename for rotation indicators
-            if '180' in filename and ('rotat' in filename or 'landscape' in filename):
-                self.log(f"   Filename suggests 180° rotation: {filename}")
-                return 180
-            elif '270' in filename and ('rotat' in filename or 'landscape' in filename):
-                self.log(f"   Filename suggests 270° rotation: {filename}")
-                return 270
-            elif '90' in filename and ('rotat' in filename or 'landscape' in filename):
-                self.log(f"   Filename suggests 90° rotation: {filename}")
-                return 90
-            
-            # Check PDF metadata for rotation
-            try:
-                doc = fitz.open(pdf_path)
-                if len(doc) > 0:
-                    first_page = doc[0]
-                    
-                    # Check if page has rotation metadata
-                    if hasattr(first_page, 'rotation') and first_page.rotation != 0:
-                        rotation = first_page.rotation
-                        self.log(f"   PDF metadata indicates {rotation}° rotation")
-                        doc.close()
-                        return rotation
-                    
-                    # Check page dimensions for obvious landscape orientation
-                    rect = first_page.rect
-                    if rect.width > rect.height * 1.3:  # Significantly wider than tall
-                        self.log(f"   Page dimensions suggest landscape: {rect.width}x{rect.height}")
-                        # Could be 90° or 270°, default to 270° for upside-down landscape
-                        if 'landscape' in filename:
-                            doc.close()
-                            return 270
-                
-                doc.close()
-            except Exception as e:
-                self.log(f"   Could not check PDF metadata: {e}")
-            
-            return 0  # No rotation detected
-            
-        except Exception as e:
-            self.log(f"   Fallback rotation detection failed: {e}")
-            return 0

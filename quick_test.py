@@ -64,6 +64,7 @@ def main():
     print("✅ Filename display bottom left")
     print("✅ Bates numbering bottom right")
     print("✅ Memory management and error handling")
+    print("✅ PDF orientation normalization (NEW - fixes rotation issues)")
     print()
 
     # Check if source folder exists
@@ -118,6 +119,7 @@ def main():
             print("📁 Original files preserved with 'original_' prefix")
             print("🏷️  Bates numbers applied (bottom right)")
             print("📝 Filenames displayed (bottom left)")
+            print("🔄 PDF orientation normalized (rotation issues fixed)")
         else:
             print("❌ Document processing completed with errors.")
 

@@ -715,64 +715,60 @@ class GDIDocumentProcessor:
     def _analyze_layouts(self):
         """
         Analyze PDF layouts to detect unusual patterns that may affect line numbering
-        Also detects landscape pages and moves them to Failures folder
+        Landscape documents are now handled by the vector line numbering system
         """
         try:
             layout_issues_found = 0
             total_pdfs_analyzed = 0
-            landscape_files_moved = 0
-            
+            landscape_files_found = 0
+
             # Analyze all PDF files in processed folder
             pdf_files = list(self.processed_folder.glob("*.pdf"))
-            
+
             if not pdf_files:
                 self.log("📄 No PDF files found for layout analysis")
                 return
-            
+
             self.log(f"🔍 Analyzing {len(pdf_files)} PDF files for unusual layouts...")
-            
+
             for pdf_file in pdf_files:
                 if not self.should_continue:
                     break
-                    
+
                 try:
-                    # Check if PDF is landscape first
+                    # Check if PDF is landscape but don't move to failures
                     is_landscape, landscape_pages = self._check_landscape_pages(str(pdf_file))
 
                     if is_landscape:
-                        # Move landscape file to failures
-                        self._move_to_failures(pdf_file, f"Landscape document detected - {landscape_pages} landscape pages")
-                        landscape_files_moved += 1
-                        self.log(f"🔄 Moved to Failures: {pdf_file.name} (landscape document)")
+                        landscape_files_found += 1
+                        self.log(f"📄 {pdf_file.name}: Landscape document detected - will use adjusted line spacing")
 
-                        # Remove from copied_files so it won't be processed by pipelines
-                        self.copied_files = [f for f in self.copied_files if Path(f.get('copied_path', '')).name != pdf_file.name]
-
-                        continue
-                    
                     # Analyze PDF content and get layout warnings
                     content_type, confidence, warnings = self.pdf_converter._analyze_pdf_content(str(pdf_file))
                     total_pdfs_analyzed += 1
-                    
+
                     if warnings:
                         layout_issues_found += 1
                         self.log(f"⚠️  Layout analysis for {pdf_file.name}:")
                         for warning in warnings:
                             self.log(f"   {warning}")
                     else:
-                        self.log(f"✅ {pdf_file.name}: Standard layout detected")
-                        
+                        if is_landscape:
+                            self.log(f"✅ {pdf_file.name}: Landscape layout detected - line spacing will be adjusted")
+                        else:
+                            self.log(f"✅ {pdf_file.name}: Standard layout detected")
+
                 except Exception as e:
                     self.log(f"❌ Failed to analyze {pdf_file.name}: {str(e)}")
-            
+
             # Summary
-            if landscape_files_moved > 0:
+            if landscape_files_found > 0:
                 self.log(f"")
                 self.log(f"📊 LANDSCAPE DETECTION SUMMARY:")
-                self.log(f"   • {landscape_files_moved} landscape documents moved to Failures folder")
-                self.log(f"   • Landscape documents are not supported for line numbering")
+                self.log(f"   • {landscape_files_found} landscape documents detected")
+                self.log(f"   • Landscape documents will use adjusted line spacing (8-inch length)")
                 self.log(f"")
-            
+
             if layout_issues_found > 0:
                 self.log(f"")
                 self.log(f"📊 LAYOUT ANALYSIS SUMMARY:")
@@ -787,7 +783,7 @@ class GDIDocumentProcessor:
                 self.log(f"")
             else:
                 self.log(f"✅ All {total_pdfs_analyzed} PDFs have standard layouts - optimal line numbering expected")
-                
+
         except Exception as e:
             self.log(f"⚠️  Layout analysis failed: {str(e)}")
             # Don't fail the entire process for layout analysis issues
@@ -856,40 +852,73 @@ class GDIDocumentProcessor:
 
     def _smart_detect_pipeline(self, pdf_path):
         """
-        Smart detection to determine the best pipeline for a PDF document
-        
+        Simplified pipeline detection based on cleaner separation:
+        - PyMuPDF for native PDFs and converted documents (with OCR fallback)
+        - OCR-only for scans, images, and TIFF files
+
         Args:
             pdf_path (str): Path to the PDF file
-            
+
         Returns:
             tuple: (pipeline_type, detection_notes)
         """
         try:
-            # Auto-assign TIFF files to ScanImage pipeline
-            if pdf_path.lower().endswith('.tiff') or pdf_path.lower().endswith('.tif'):
-                return 'ScanImage', 'TIFF file - automatically assigned to ScanImage pipeline'
-            
+            # Auto-assign image-based files to ScanImage pipeline (OCR-only)
+            if pdf_path.lower().endswith(('.tiff', '.tif', '.jpg', '.jpeg', '.png', '.bmp', '.gif')):
+                return 'ScanImage', f'Image file {Path(pdf_path).suffix} - using OCR-only pipeline'
+
             if not fitz:
-                return 'ScanImage', 'PyMuPDF not available - defaulting to ScanImage'
-                
+                return 'ScanImage', 'PyMuPDF not available - using OCR-only pipeline'
+
             doc = fitz.open(pdf_path)
             total_pages = len(doc)
-            
-            # Analyze each page
-            page_analyses = []
+
+            # Quick analysis to determine if this is a scan/image-based document
+            # If it has substantial extractable text, use NativePDF, otherwise ScanImage
+            total_text_length = 0
+            total_images = 0
+            pages_with_minimal_text = 0
+
             for page_num in range(total_pages):
                 page = doc[page_num]
-                page_analysis = self._analyze_page_content(page, page_num)
-                page_analyses.append(page_analysis)
-            
+
+                # Get text content
+                text = page.get_text()
+                text_length = len(text.strip())
+                total_text_length += text_length
+
+                # Count images
+                image_list = page.get_images()
+                total_images += len(image_list)
+
+                # Check for minimal text (likely scanned document with OCR layer)
+                if text_length > 0 and text_length < 50:  # Very short text, likely OCR artifacts
+                    pages_with_minimal_text += 1
+
+            # Decision logic:
+            # Use NativePDF if: substantial text content OR no images but has text OR has rotation (needs correction)
+            # Use ScanImage if: minimal text OR mostly images OR was originally an image file
+
+            avg_text_per_page = total_text_length / max(total_pages, 1)
+
             doc.close()
-            
-            # Determine overall document type based on page analyses
-            return self._determine_document_type(page_analyses, pdf_path)
-            
+
+            # Decision logic - simpler approach:
+            # Use NativePDF if: substantial text content OR no images but has text
+            # Use ScanImage if: minimal text OR mostly images OR image-based with rotation
+
+            if avg_text_per_page > 100:  # Substantial text content - use PyMuPDF
+                return 'NativePDF', f'Text-based document ({avg_text_per_page:.0f} avg chars/page) - using PyMuPDF with OCR fallback'
+            elif total_images == 0 and total_text_length > 0:  # No images but has text - use PyMuPDF
+                return 'NativePDF', f'Text document with no images ({total_text_length} total chars) - using PyMuPDF with OCR fallback'
+            elif pages_with_minimal_text > total_pages * 0.8:  # Mostly minimal text - likely scanned
+                return 'ScanImage', f'Likely scanned document ({pages_with_minimal_text}/{total_pages} pages with minimal text) - using OCR-only'
+            else:
+                return 'ScanImage', f'Image-based document (avg {avg_text_per_page:.0f} chars/page, {total_images} images) - using OCR-only'
+
         except Exception as e:
             self.log(f"Smart detection failed for {pdf_path}: {str(e)}")
-            return 'ScanImage', f'Detection failed - defaulting to ScanImage: {str(e)}'
+            return 'ScanImage', f'Detection failed - defaulting to OCR-only: {str(e)}'
     
     def _analyze_page_content(self, page, page_num):
         """

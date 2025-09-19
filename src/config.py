@@ -26,5 +26,5 @@ BOTTOM_MARGIN_POINTS = 20  # Distance from bottom edge
 
 # Footer configuration - consistent styling for filename and Bates number
 FOOTER_FONT_NAME = "Times-Roman"
-FOOTER_FONT_SIZE = 8
+FOOTER_FONT_SIZE = 9
 FOOTER_FONT_COLOR = (0, 0, 0)  # Black for both filename and Bates number

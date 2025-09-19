@@ -657,21 +657,23 @@ class PDFConverter:
         """
         try:
             # Detect orientation using Tesseract OSD
+            self.log(f"🔍 Starting orientation detection for: {Path(image_path).name}")
+
             osd_data = pytesseract.image_to_osd(
                 image_path,
                 config='--psm 0 -c min_characters_to_try=5',
                 output_type=pytesseract.Output.DICT
             )
-            
+
             rotation_needed = osd_data['rotate']
             confidence = osd_data['orientation_conf']
             orientation = osd_data['orientation']
-            
+
             # Log detailed detection results
             self.log(f"🔍 Tesseract OSD results: rotation={rotation_needed}°, confidence={confidence:.1f}, orientation={orientation}°")
-            
+
             # Lower confidence threshold and add more detailed logging
-            if confidence > 5.0 and rotation_needed != 0:
+            if confidence > 1.0 and rotation_needed != 0:
                 # Load and rotate image
                 image = Image.open(image_path)
                 if image.mode != 'RGB':
@@ -699,6 +701,8 @@ class PDFConverter:
                 
         except Exception as e:
             self.log(f"⚠️  Orientation detection failed: {e} - using original image")
+            import traceback
+            self.log(f"⚠️  Traceback: {traceback.format_exc()}")
             return image_path, 0  # Fallback to original
             
     def _convert_word_to_pdf_enhanced(self, input_path, output_path):

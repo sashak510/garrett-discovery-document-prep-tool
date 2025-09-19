@@ -3,20 +3,25 @@ Native PDF Pipeline for processing text-based PDF documents
 
 UPDATED: Now using Universal 28-Line Grid Numbering System for all document types
 This pipeline applies consistent 28-line grid numbering to all PDF documents.
+
+ENHANCED: Advanced orientation detection using PyMuPDF and OCR fallback
 """
 from pathlib import Path
 import shutil
 import os
 import fitz
 from .base_pipeline import BasePipeline
+from pdf_orientation_detector import PDFOrientationDetector
 
 class NativePDFPipeline(BasePipeline):
-    """Pipeline for processing native PDF documents with universal 28-line grid numbering"""
+    """Pipeline for processing native PDF documents with universal 28-line grid numbering and advanced orientation detection"""
 
     def __init__(self, bates_numberer, logger_manager=None, universal_line_numberer=None):
         # Use universal line numbering system for consistent 28-line grid
         super().__init__(bates_numberer, logger_manager)
         self.universal_line_numberer = universal_line_numberer
+        # Initialize advanced orientation detector
+        self.orientation_detector = PDFOrientationDetector(log_callback=self.log)
     
     def get_pipeline_type(self):
         return "NativePDF"
@@ -44,19 +49,19 @@ class NativePDFPipeline(BasePipeline):
             dict: Processing results
         """
         try:
-            # self.log(f"[DEBUG] NativePDFPipeline processing: {source_path.name}")
-            # self.log(f"[DEBUG] Universal line numberer available: {self.universal_line_numberer is not None}")
-            # Step 1: Copy source to working location and check orientation
+            # Step 1: Copy source to working location and apply advanced orientation detection
             pdf_path = output_path.with_suffix('.working.pdf')
 
-            # First, check if PDF needs orientation correction
-            rotation_applied = self._correct_pdf_orientation(str(source_path), str(pdf_path))
+            # Use advanced orientation detection with PyMuPDF and OCR fallback
+            self.log(f"🔍 Using advanced orientation detection for {source_path.name}")
+            rotation_applied = self.orientation_detector.detect_and_correct_orientation(
+                str(source_path), str(pdf_path)
+            )
+
             if rotation_applied:
-                # Orientation was corrected and saved to pdf_path
-                self.log(f"✅ Orientation corrected for {source_path.name}")
+                self.log(f"✅ Advanced orientation correction applied for {source_path.name}")
             else:
-                # No correction needed, just copy original to working location
-                shutil.copy2(str(source_path), str(pdf_path))
+                self.log(f"ℹ️  No orientation correction needed for {source_path.name}")
 
             # Step 1.5: Scale down large documents to improve line number visibility
             scaled_path = pdf_path.with_suffix('.scaled.pdf')

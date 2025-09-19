@@ -138,8 +138,8 @@ class TextPipeline(BasePipeline):
             # Add universal 28-line grid numbering
             lined_pdf_path = output_path.with_suffix('.lined.pdf')
             if self.universal_line_numberer:
-                line_success = self.universal_line_numberer.add_universal_line_numbers(
-                    temp_pdf_path, lined_pdf_path
+                line_success = self.universal_line_numberer.add_line_numbers_to_pdf(
+                    str(temp_pdf_path), str(lined_pdf_path)
                 )
             else:
                 # Fallback to base pipeline method if universal line numberer not available
@@ -160,7 +160,7 @@ class TextPipeline(BasePipeline):
             if self.universal_line_numberer:
                 final_path = output_path
                 filename = source_path.stem
-                self.universal_line_numberer.add_bates_and_filename_to_pdf(
+                self.universal_line_numberer.add_bates_and_filename(
                     temp_pdf_path, final_path, bates_prefix, bates_start_number, filename
                 )
                 # Clean up the temp file

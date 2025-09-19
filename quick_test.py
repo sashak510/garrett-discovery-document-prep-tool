@@ -17,7 +17,7 @@ from file_scanner import FileScanner
 from pdf_converter import PDFConverter
 from bates_numbering import BatesNumberer
 from logger_manager import LoggerManager
-from universal_line_numbering import UniversalLineNumberer
+from vector_line_numbering import VectorLineNumberer
 
 
 def log_callback(message):
@@ -38,7 +38,7 @@ def main():
     print()
 
     # Fixed configuration
-    source_folder = "Test files"
+    source_folder = "Test Files 2"
     output_folder = "Test files_Processed"
     bates_prefix = "TEST"
     file_limit = args.limit

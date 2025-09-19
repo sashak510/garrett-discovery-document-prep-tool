@@ -16,6 +16,7 @@ LOCKED SETTINGS:
 import os
 from pathlib import Path
 import tempfile
+import config
 
 try:
     import fitz  # PyMuPDF
@@ -49,17 +50,17 @@ class BatesNumberer:
         self.log_callback = log_callback
         self.bates_errors = []
         
-        # Bates numbering settings
-        self.font_size = 8  # Normal font size
-        self.font_color = (0, 0, 0)  # Black color for bates numbers
-        self.font_name = "Times-Roman"  # Times New Roman font
+        # Bates numbering settings - from config.py
+        self.font_size = config.FOOTER_FONT_SIZE
+        self.font_color = config.FOOTER_FONT_COLOR
+        self.font_name = config.FOOTER_FONT_NAME
         self.position = 'bottom_right'  # bottom_right, bottom_left, top_right, top_left, bottom_center
-        self.margin = 10  # Tighter margin for corner positioning
+        self.margin = config.BOTTOM_MARGIN_POINTS  # Margin from config
         self.format_template = "{prefix}{number:04d}"  # Default format
         self.background_fill = True  # Add background fill for visibility
-        self.fill_color = (0.98, 0.98, 0.98)  # Very light gray background (simulates translucency)
-        self.border_color = (0, 0, 0)  # Black border
-        self.min_margin = 15  # Minimum margin to avoid content overlap
+        self.fill_color = config.BACKGROUND_COLOR_LIGHT_GREY  # Light grey from config
+        self.border_color = config.FONT_COLOR_BLACK  # Black border from config
+        self.min_margin = config.PRINTER_SAFE_MARGIN_POINTS  # Minimum margin to avoid content overlap
         
     def log(self, message):
         """Log a message using the callback or print"""
@@ -144,47 +145,13 @@ class BatesNumberer:
         text_height = self.font_size + 2
         padding = 2  # Minimal padding for a very tight box
         
-        # Calculate background rectangle and text position
-        # x_pos and y_pos now represent the center of the rectangle
-        rect_left = x_pos - text_width/2 - padding
-        rect_right = x_pos + text_width/2 + padding
-        rect_top = y_pos - text_height/2 - padding
-        rect_bottom = y_pos + text_height/2 + padding
-        text_rect = fitz.Rect(rect_left, rect_top, rect_right, rect_bottom)
-            
-        # Add background fill for better visibility
-        if self.background_fill:
-            try:
-                # Draw rectangle with border and fill
-                page.draw_rect(text_rect, color=self.border_color, fill=self.fill_color, width=1)
-            except Exception as e:
-                self.log(f"Warning: Could not add background fill: {str(e)}")
-            
-        # Insert the actual Bates number at the correct position within the rectangle
+        # Insert non-searchable Bates number using vector graphics approach (includes background)
         try:
-            # Fine-tune vertical centering for better text positioning
-            text_y = y_pos + (self.font_size * 0.3)  # Adjust for font baseline
-            
-            # Use the same text width calculation as the rectangle
-            # This ensures perfect centering since rectangle and text use same width
-            centered_text_x = x_pos - (text_width / 2)
-            
-            # Log centering details for debugging
-            self.log(f"Bates centering: '{bates_number}' - text_width: {text_width:.1f}, x_pos: {x_pos:.1f}, centered_x: {centered_text_x:.1f}")
-            self.log(f"Rectangle bounds: left={rect_left:.1f}, right={rect_right:.1f}, width={rect_right-rect_left:.1f}")
-            
-            page.insert_text(
-                (centered_text_x, text_y),
-                bates_number,
-                fontsize=self.font_size,
-                color=self.font_color,
-                fontname=self.font_name,
-                rotate=0  # Ensure upright text
-            )
-            self.log(f"Successfully added Bates number '{bates_number}' at position ({centered_text_x:.1f}, {text_y:.1f})")
+            self._add_non_searchable_bates_text(page, bates_number, x_pos, y_pos, text_width, text_height, padding)
+            self.log(f"Successfully added non-searchable Bates number '{bates_number}' at position ({x_pos:.1f}, {y_pos:.1f})")
         except Exception as e:
-            self.log(f"Error placing Bates number '{bates_number}': {str(e)}")
-            # Simple fallback - try to insert text anyway
+            self.log(f"Error placing non-searchable Bates number '{bates_number}': {str(e)}")
+            # Fallback to simple searchable text if vector approach fails
             try:
                 self.log(f"Attempting fallback text insertion for '{bates_number}'")
                 page.insert_text(
@@ -274,8 +241,86 @@ class BatesNumberer:
             y_pos = height - safe_margin - rectangle_height/2  # Bottom of page, centered vertically
             
         return x_pos, y_pos
+    
+    def _add_non_searchable_bates_text(self, page, text: str, x: float, y: float, text_width: float, text_height: float, padding: float):
+        """
+        Add Bates number as non-searchable vector graphics with background
         
-        
+        This creates an image containing the text with background fill and border,
+        making it completely non-searchable while maintaining professional appearance.
+        """
+        try:
+            # Create image with background and text
+            from PIL import Image, ImageDraw, ImageFont
+            import io
+            
+            # Calculate image size including padding
+            img_width = int(text_width + padding * 2 + 4)  # Extra padding for border
+            img_height = int(text_height + padding * 2 + 4)
+            
+            # Create image with background fill color
+            bg_color = (
+                int(self.fill_color[0] * 255),
+                int(self.fill_color[1] * 255), 
+                int(self.fill_color[2] * 255),
+                255
+            )
+            
+            img = Image.new('RGBA', (img_width, img_height), bg_color)
+            draw = ImageDraw.Draw(img)
+            
+            # Draw border
+            border_color = (
+                int(self.border_color[0] * 255),
+                int(self.border_color[1] * 255),
+                int(self.border_color[2] * 255),
+                255
+            )
+            draw.rectangle([0, 0, img_width-1, img_height-1], outline=border_color, width=1)
+            
+            # Draw the text centered
+            try:
+                # Convert font color from 0-1 range to 0-255 range
+                text_color = (
+                    int(self.font_color[0] * 255),
+                    int(self.font_color[1] * 255), 
+                    int(self.font_color[2] * 255),
+                    255
+                )
+                
+                # Center text in image
+                text_x = (img_width - text_width) / 2
+                text_y = (img_height - text_height) / 2 + 2  # Slight adjustment for baseline
+                
+                draw.text((text_x, text_y), text, fill=text_color)
+                
+            except Exception:
+                # Fallback: simple black color
+                draw.text((padding + 2, padding + 2), text, fill=(0, 0, 0, 255))
+            
+            # Convert image to bytes
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+            
+            # Calculate image position (center the image at x,y coordinates)
+            rect_left = x - img_width/2
+            rect_top = y - img_height/2
+            rect_right = x + img_width/2
+            rect_bottom = y + img_height/2
+            
+            # Insert the image at the specified position
+            rect = fitz.Rect(rect_left, rect_top, rect_right, rect_bottom)
+            page.insert_image(rect, stream=img_bytes)
+            
+        except ImportError:
+            # PIL is required for non-searchable bates numbers
+            self.log(f"      ❌ PIL not available - cannot create non-searchable bates number for '{text}'")
+            raise ImportError("PIL (Pillow) is required for non-searchable bates numbers")
+            
+        except Exception as e:
+            self.log(f"      ❌ Failed to add non-searchable bates number '{text}': {str(e)}")
+            raise
         
         
     def get_bates_errors(self):

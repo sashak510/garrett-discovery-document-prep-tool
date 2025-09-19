@@ -25,8 +25,7 @@ from pipelines.native_pdf_pipeline import NativePDFPipeline
 from pipelines.scan_image_pipeline import ScanImagePipeline
 from error_handling import ErrorHandler, ValidationError, ProcessingError
 from memory_manager import MemoryManager, MemoryConfig
-from universal_line_numbering import UniversalLineNumberer
-from image_line_numbering import ImageLineNumberer
+from vector_line_numbering import VectorLineNumberer
 
 
 class GDIDocumentProcessor:
@@ -93,16 +92,13 @@ class GDIDocumentProcessor:
 
         self.logger_manager = LoggerManager(log_callback=log_callback)
 
-        # Initialize image-based line numbering system
-        self.image_line_numberer = ImageLineNumberer(log_callback=log_callback)
+        # Initialize vector-based line numbering system
+        self.vector_line_numberer = VectorLineNumberer(log_callback=log_callback)
 
-        # Initialize universal line numbering system (for compatibility)
-        self.universal_line_numberer = UniversalLineNumberer(log_callback=log_callback)
-
-        # Initialize pipelines with universal line numbering system (FIXED to use universal instead of image)
-        self.text_pipeline = TextPipeline(self.bates_numberer, self.logger_manager, self.universal_line_numberer)
-        self.native_pdf_pipeline = NativePDFPipeline(self.bates_numberer, self.logger_manager, self.universal_line_numberer)
-        self.scan_image_pipeline = ScanImagePipeline(self.bates_numberer, self.logger_manager, self.universal_line_numberer)
+        # Initialize pipelines with vector line numbering system
+        self.text_pipeline = TextPipeline(self.bates_numberer, self.logger_manager, self.vector_line_numberer)
+        self.native_pdf_pipeline = NativePDFPipeline(self.bates_numberer, self.logger_manager, self.vector_line_numberer)
+        self.scan_image_pipeline = ScanImagePipeline(self.bates_numberer, self.logger_manager, self.vector_line_numberer)
         
         # Processing state
         self.found_files = []
@@ -1347,8 +1343,8 @@ class GDIDocumentProcessor:
                         if not isinstance(total_lines, int):
                             total_lines = 0
                         
-                        # Get gutter width from universal line numbering system
-                        gutter_width_inches = self.universal_line_numberer.legal_gutter_width / 72
+                        # Get gutter width from vector line numbering system
+                        gutter_width_inches = self.vector_line_numberer.gutter_width / 72
                         
                         doc.close()
                         

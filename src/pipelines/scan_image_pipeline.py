@@ -46,10 +46,10 @@ class ScanImagePipeline(BasePipeline):
             tuple: (success, final_line_number)
         """
         try:
-            # Use universal line numbering system if available
+            # Use vector line numbering system if available
             if self.universal_line_numberer:
-                success = self.universal_line_numberer.add_universal_line_numbers(
-                    Path(input_path), Path(output_path)
+                success = self.universal_line_numberer.add_line_numbers_to_pdf(
+                    str(input_path), str(output_path)
                 )
                 return success, 28  # Universal system always uses 28 lines per page
             else:
@@ -72,7 +72,7 @@ class ScanImagePipeline(BasePipeline):
             target_lines = 28  # Standard line count for legal docs
 
             for pno, page in enumerate(src):
-                # page.rect reflects page rotation; our normalized input has rotation=0
+                # page.rect reflects current page dimensions (orientation already corrected)
                 rect = page.rect  # width & height in points
 
                 # Create a new page with extra gutter on the left
@@ -161,33 +161,19 @@ class ScanImagePipeline(BasePipeline):
             pdf_path = output_path.with_suffix(".working.pdf")
             shutil.copy2(str(source_path), str(pdf_path))
 
-            # 2) Normalize rotation *losslessly* (no rasterization)
-            temp_cleared_path = pdf_path.with_suffix(".cleared.pdf")
-            rotation_cleared = self._clear_rotation_and_assess_orientation(
-                str(pdf_path), str(temp_cleared_path)
-            )
-            if not rotation_cleared:
-                if temp_cleared_path.exists():
-                    temp_cleared_path.unlink()
-                if pdf_path.exists():
-                    pdf_path.unlink()
-                return {
-                    "success": False,
-                    "error": "Failed to clear rotation metadata",
-                    "lines_added": 0,
-                    "pipeline_type": self.get_pipeline_name(),
-                }
+            # 2) Skip rotation clearing - orientation already corrected in pdf_converter
+            # The orientation correction has already been applied in the OCR phase,
+            # so we don't need to clear rotation metadata here which would undo the correction
+            
+            # Note: _clear_rotation_and_assess_orientation is disabled to preserve 
+            # the orientation correction applied during OCR processing
 
-            # 3) Move normalized file into place
-            shutil.move(str(temp_cleared_path), str(pdf_path))
-            # Cleared rotation metadata
-
-            # 4) Add line numbers using universal line numbering system
+            # 3) Add line numbers using universal line numbering system
             if self.universal_line_numberer:
                 # Use universal line numbering to add line numbers with true gutter
                 temp_lined_path = pdf_path.with_suffix(".lined.pdf")
-                line_success = self.universal_line_numberer.add_universal_line_numbers(
-                    pdf_path, temp_lined_path
+                line_success = self.universal_line_numberer.add_line_numbers_to_pdf(
+                    str(pdf_path), str(temp_lined_path)
                 )
                 if line_success:
                     shutil.move(str(temp_lined_path), str(pdf_path))
@@ -207,7 +193,7 @@ class ScanImagePipeline(BasePipeline):
                     if temp_lined_path.exists():
                         temp_lined_path.unlink()
 
-            # 5) Add Bates numbers and filename using universal line numbering system
+            # 4) Add Bates numbers and filename using universal line numbering system
             if self.universal_line_numberer:
                 filename = source_path.stem
                 # Get the total number of pages to calculate next Bates number
@@ -216,7 +202,7 @@ class ScanImagePipeline(BasePipeline):
                 total_pages = len(doc)
                 doc.close()
 
-                bates_success = self.universal_line_numberer.add_bates_and_filename_to_pdf(
+                bates_success = self.universal_line_numberer.add_bates_and_filename(
                     pdf_path, output_path, bates_prefix, bates_start_number, filename
                 )
                 next_bates = bates_start_number + total_pages  # Increment by number of pages

@@ -16,10 +16,9 @@ try:
 except ImportError:
     Image = None
 
-try:
-    import pytesseract
-except ImportError:
-    pytesseract = None
+import pytesseract
+import imutils
+import numpy as np
 
 try:
     from docx import Document
@@ -490,25 +489,37 @@ class PDFConverter:
                     tmp_img_path = tmp_img.name
                     
                 try:
-                    # Perform OCR
-                    ocr_text = pytesseract.image_to_string(Image.open(tmp_img_path))
+                    # NEW: Detect and correct orientation before OCR
+                    corrected_img_path, rotation_applied = self._detect_and_correct_orientation(tmp_img_path)
                     
-                    # Create new page with OCR text
-                    new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
+                    # Perform OCR on corrected image
+                    ocr_text = pytesseract.image_to_string(Image.open(corrected_img_path))
                     
-                    # Insert the original image
-                    new_page.insert_image(page.rect, filename=tmp_img_path)
+                    # Create new page with correct dimensions (swap if rotated 90/270)
+                    if rotation_applied in (90, 270):
+                        # Swap width and height for 90/270 degree rotations
+                        new_page = new_doc.new_page(width=page.rect.height, height=page.rect.width)
+                        page_rect = fitz.Rect(0, 0, page.rect.height, page.rect.width)
+                    else:
+                        new_page = new_doc.new_page(width=page.rect.width, height=page.rect.height)
+                        page_rect = page.rect
+                    
+                    # Insert the corrected image
+                    new_page.insert_image(page_rect, filename=corrected_img_path)
                     
                     # Add invisible text overlay for searchability
                     if ocr_text.strip():
-                        text_rect = fitz.Rect(0, 0, page.rect.width, page.rect.height)
+                        text_rect = page_rect
                         new_page.insert_textbox(text_rect, ocr_text, 
                                               fontsize=8, color=(1, 1, 1),  # White text (invisible)
                                               overlay=True)
                     
                 finally:
-                    # Clean up temporary image
-                    os.unlink(tmp_img_path)
+                    # Clean up temporary images
+                    if os.path.exists(tmp_img_path):
+                        os.unlink(tmp_img_path)
+                    if 'corrected_img_path' in locals() and corrected_img_path != tmp_img_path and os.path.exists(corrected_img_path):
+                        os.unlink(corrected_img_path)
                     
             # Save the new PDF
             new_doc.save(output_path)
@@ -538,11 +549,28 @@ class PDFConverter:
                     img = img.convert('RGB')
                     
                 if perform_ocr and pytesseract:
-                    # Perform OCR
-                    ocr_text = pytesseract.image_to_string(img)
+                    # Save image temporarily for orientation detection
+                    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp_img:
+                        img.save(tmp_img.name, "PNG")
+                        tmp_img_path = tmp_img.name
                     
-                    # Create PDF with image and text
-                    self._create_pdf_with_image_and_text(img, ocr_text, output_path)
+                    try:
+                        # NEW: Detect and correct orientation before OCR
+                        corrected_img_path, _ = self._detect_and_correct_orientation(tmp_img_path)
+                        
+                        # Load corrected image and perform OCR
+                        corrected_img = Image.open(corrected_img_path)
+                        ocr_text = pytesseract.image_to_string(corrected_img)
+                        
+                        # Create PDF with corrected image and text
+                        self._create_pdf_with_image_and_text(corrected_img, ocr_text, output_path)
+                        
+                    finally:
+                        # Clean up temporary images
+                        if os.path.exists(tmp_img_path):
+                            os.unlink(tmp_img_path)
+                        if 'corrected_img_path' in locals() and corrected_img_path != tmp_img_path and os.path.exists(corrected_img_path):
+                            os.unlink(corrected_img_path)
                 else:
                     # Just convert image to PDF
                     img.save(output_path, "PDF", resolution=300.0)
@@ -615,6 +643,63 @@ class PDFConverter:
             self.log(f"Error creating PDF with text overlay: {e}")
             # Fallback
             image.save(output_path, "PDF", resolution=300.0)
+            
+    def _detect_and_correct_orientation(self, image_path):
+        """
+        Detect orientation and rotate image if needed
+        
+        Args:
+            image_path (str): Path to the image file
+            
+        Returns:
+            tuple: (corrected_image_path, rotation_applied) 
+                   rotation_applied is degrees rotated (0, 90, 180, 270)
+        """
+        try:
+            # Detect orientation using Tesseract OSD
+            osd_data = pytesseract.image_to_osd(
+                image_path,
+                config='--psm 0 -c min_characters_to_try=5',
+                output_type=pytesseract.Output.DICT
+            )
+            
+            rotation_needed = osd_data['rotate']
+            confidence = osd_data['orientation_conf']
+            orientation = osd_data['orientation']
+            
+            # Log detailed detection results
+            self.log(f"🔍 Tesseract OSD results: rotation={rotation_needed}°, confidence={confidence:.1f}, orientation={orientation}°")
+            
+            # Lower confidence threshold and add more detailed logging
+            if confidence > 5.0 and rotation_needed != 0:
+                # Load and rotate image
+                image = Image.open(image_path)
+                if image.mode != 'RGB':
+                    image = image.convert('RGB')
+                
+                # Convert to numpy array for imutils
+                image_np = np.array(image)
+                
+                # Rotate with bounds preservation
+                rotated = imutils.rotate_bound(image_np, angle=rotation_needed)
+                
+                # Save corrected image
+                path_obj = Path(image_path)
+                corrected_path = str(path_obj.parent / f"{path_obj.stem}_corrected{path_obj.suffix}")
+                Image.fromarray(rotated).save(corrected_path)
+                
+                self.log(f"🔄 Corrected orientation: rotated {rotation_needed}° (confidence: {confidence:.1f}, detected orientation: {orientation}°)")
+                return corrected_path, rotation_needed
+            else:
+                if rotation_needed == 0:
+                    self.log(f"✅ Document orientation correct (confidence: {confidence:.1f})")
+                else:
+                    self.log(f"⚠️  Orientation detection confidence too low ({confidence:.1f}) - skipping rotation")
+                return image_path, 0
+                
+        except Exception as e:
+            self.log(f"⚠️  Orientation detection failed: {e} - using original image")
+            return image_path, 0  # Fallback to original
             
     def _convert_word_to_pdf_enhanced(self, input_path, output_path):
         """Convert Word document to PDF with precise line mapping for 100% accuracy"""

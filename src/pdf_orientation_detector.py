@@ -72,7 +72,15 @@ class PDFOrientationDetector:
                 self.log(f"✅ OCR-based orientation correction applied")
                 return True
 
-            # If both methods failed, just copy the original
+            # If both methods failed, try aggressive rotation correction for obvious issues
+            self.log(f"⚠️  OCR detection failed, trying aggressive rotation correction")
+            correction_applied = self._try_aggressive_correction(input_pdf_path, output_pdf_path)
+
+            if correction_applied:
+                self.log(f"✅ Aggressive rotation correction applied")
+                return True
+
+            # If all methods failed, just copy the original
             self.log(f"ℹ️  No orientation correction needed, using original")
             shutil.copy2(input_pdf_path, output_pdf_path)
             return False
@@ -145,7 +153,7 @@ class PDFOrientationDetector:
     def _analyze_page_text_orientation(self, page) -> int:
         """
         Analyze text content to determine correct orientation
-        More conservative approach - only correct obvious issues
+        Improved approach - use dict method for better text extraction
 
         Args:
             page: PyMuPDF page object
@@ -154,37 +162,37 @@ class PDFOrientationDetector:
             int: Suggested rotation angle (0, 90, 180, 270)
         """
         try:
-            # First, check if there's already a rotation set
             current_rotation = page.rotation
-            if current_rotation == 0:
-                # If no rotation is set, assume it's correct
-                return 0
 
-            # Only analyze if there's a non-zero rotation
-            # Extract text blocks from the page
-            text_blocks = page.get_text("blocks")
+            # Extract text using dict method which is more reliable
+            text_dict = page.get_text("dict")
 
-            if not text_blocks:
+            if not text_dict or 'blocks' not in text_dict:
                 # No text found, can't determine orientation - keep current
                 return current_rotation
 
-            # Analyze text block positions and orientations
+            # Extract text blocks from dict format
             text_data = []
-            for block in text_blocks:
-                if len(block) >= 6:  # Ensure block has enough data
-                    x0, y0, x1, y1, text, block_no, block_type = block[:7]
-                    if text.strip():  # Only consider non-empty text
-                        text_data.append({
-                            'text': text,
-                            'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
-                            'width': x1 - x0,
-                            'height': y1 - y0
-                        })
+            for block in text_dict['blocks']:
+                if 'lines' in block:
+                    for line in block['lines']:
+                        if 'spans' in line:
+                            for span in line['spans']:
+                                if 'text' in span and span['text'].strip():
+                                    # Calculate span dimensions
+                                    x0, y0 = span['bbox'][0], span['bbox'][1]
+                                    x1, y1 = span['bbox'][2], span['bbox'][3]
+                                    text_data.append({
+                                        'text': span['text'],
+                                        'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                                        'width': x1 - x0,
+                                        'height': y1 - y0
+                                    })
 
             if not text_data:
                 return current_rotation
 
-            # Use more conservative heuristics
+            # Use improved heuristics
             return self._determine_orientation_conservative(text_data, page.rect, current_rotation)
 
         except Exception as e:
@@ -193,7 +201,7 @@ class PDFOrientationDetector:
 
     def _determine_orientation_conservative(self, text_data: list, page_rect, current_rotation: int) -> int:
         """
-        More conservative orientation determination - only correct obvious issues
+        Improved orientation determination - correct obvious rotation issues more aggressively
 
         Args:
             text_data: List of text block data
@@ -204,10 +212,6 @@ class PDFOrientationDetector:
             int: Suggested rotation angle
         """
         try:
-            # If current rotation is 0, keep it
-            if current_rotation == 0:
-                return 0
-
             page_width = page_rect.width
             page_height = page_rect.height
 
@@ -223,30 +227,41 @@ class PDFOrientationDetector:
                     vertical_text += 1
 
             total_blocks = len(text_data)
-            horizontal_ratio = horizontal_text / total_blocks if total_blocks > 0 else 0
+            if total_blocks == 0:
+                return current_rotation
 
-            # Only correct if we have high confidence
-            # Most text should be horizontal for normal documents
-            if horizontal_ratio < 0.7:  # Less than 70% horizontal text
-                # This might indicate a rotation issue
-                # But only correct if we're very confident
+            horizontal_ratio = horizontal_text / total_blocks
 
-                # Check if current rotation is causing issues
-                if current_rotation in [90, 270]:
-                    # For 90° or 270° rotation, most text should be vertical
-                    # If we have mostly horizontal text, it's probably wrong
-                    if horizontal_ratio > 0.7:
-                        self.log(f"   Conservative correction: 90° rotation with {horizontal_ratio:.1f} horizontal text - setting to 0°")
-                        return 0
+            # Improved rotation logic based on text direction
+            if current_rotation == 0:
+                # If we have mostly vertical text but page is portrait, might need rotation
+                if horizontal_ratio < 0.3 and page_width < page_height:
+                    # Portrait page with mostly vertical text - likely needs 90° rotation
+                    self.log(f"   Correction: 0° rotation with {horizontal_ratio:.1f} horizontal text - setting to 90°")
+                    return 90
 
-                elif current_rotation == 180:
-                    # 180° rotation is rarely needed for normal documents
-                    # Only correct if we have very high confidence
-                    if horizontal_ratio > 0.9:
-                        self.log(f"   Conservative correction: 180° rotation with {horizontal_ratio:.1f} horizontal text - setting to 0°")
-                        return 0
+            elif current_rotation == 90:
+                # If we have mostly horizontal text but page is portrait, likely wrong
+                if horizontal_ratio > 0.7 and page_width < page_height:
+                    # Portrait page with 90° rotation and mostly horizontal text - reset to 0°
+                    self.log(f"   Correction: 90° rotation with {horizontal_ratio:.1f} horizontal text - setting to 0°")
+                    return 0
 
-            # Default: keep current rotation
+            elif current_rotation == 180:
+                # 180° rotation is rarely correct for normal documents
+                # If we have reasonable text layout, reset to 0°
+                if horizontal_ratio > 0.4:  # More reasonable threshold
+                    self.log(f"   Correction: 180° rotation with {horizontal_ratio:.1f} horizontal text - setting to 0°")
+                    return 0
+
+            elif current_rotation == 270:
+                # Similar to 90° logic but for 270° rotation
+                if horizontal_ratio > 0.7 and page_width < page_height:
+                    # Portrait page with 270° rotation and mostly horizontal text - reset to 0°
+                    self.log(f"   Correction: 270° rotation with {horizontal_ratio:.1f} horizontal text - setting to 0°")
+                    return 0
+
+            # Default: keep current rotation if no obvious correction needed
             return current_rotation
 
         except Exception as e:
@@ -374,8 +389,8 @@ class PDFOrientationDetector:
             except Exception as e:
                 self.log(f"   OCR failed for current orientation: {str(e)}")
 
-            # Only test other orientations if current confidence is low
-            if current_confidence < 0.3:  # Low confidence threshold
+            # Test other orientations if current confidence is moderate or low
+            if current_confidence < 0.7:  # Moderate confidence threshold
                 orientation_scores = {0: current_confidence}
 
                 # Test other orientations
@@ -394,13 +409,26 @@ class PDFOrientationDetector:
                 best_rotation = max(orientation_scores, key=orientation_scores.get)
                 best_confidence = orientation_scores[best_rotation]
 
-                # Only apply correction if we're very confident and it's different from current
-                confidence_threshold = 0.5  # High threshold
-                if best_confidence > confidence_threshold and best_rotation != 0:
-                    if best_confidence > current_confidence * 1.5:  # Significant improvement
-                        self.log(f"   Conservative OCR correction: {best_rotation}° (confidence: {best_confidence:.2f} vs current {current_confidence:.2f})")
+                # Apply correction if we have reasonable confidence, but prefer 0° rotation for consistency
+                confidence_threshold = 0.3  # Lower threshold for OCR-based correction
+
+                # Always prefer 0° rotation if it has reasonable confidence
+                if orientation_scores.get(0, 0) > confidence_threshold:
+                    # 0° rotation has reasonable confidence - use it
+                    if orientation_scores[0] > current_confidence * 1.1:  # Only need slight improvement
+                        self.log(f"   Conservative OCR correction: 0° rotation (preferred orientation)")
+                        doc.close()
+                        return self._apply_rotation_correction(input_pdf_path, output_pdf_path, 0)
+                    else:
+                        self.log(f"   No OCR correction: 0° rotation confidence similar to current")
+                elif best_confidence > confidence_threshold and best_rotation != 0:
+                    # Only use non-zero rotation if 0° confidence is very low
+                    if best_confidence > current_confidence * 1.5:  # Require significant improvement
+                        self.log(f"   Conservative OCR correction: {best_rotation}° (0° confidence too low)")
                         doc.close()
                         return self._apply_rotation_correction(input_pdf_path, output_pdf_path, best_rotation)
+                    else:
+                        self.log(f"   No OCR correction: insufficient confidence for non-zero rotation")
 
             doc.close()
             self.log(f"   OCR analysis: no correction needed (current confidence: {current_confidence:.2f})")
@@ -484,6 +512,103 @@ class PDFOrientationDetector:
 
         except Exception as e:
             self.log(f"   Rotation correction failed: {str(e)}")
+            return False
+
+    def _try_aggressive_correction(self, input_pdf_path: str, output_pdf_path: str) -> bool:
+        """
+        Aggressive rotation correction for obvious rotation issues
+        This method corrects clearly wrong rotations without needing text analysis
+
+        Args:
+            input_pdf_path: Path to input PDF
+            output_pdf_path: Path for output PDF
+
+        Returns:
+            bool: True if correction was applied, False otherwise
+        """
+        try:
+            doc = fitz.open(input_pdf_path)
+            if len(doc) == 0:
+                doc.close()
+                return False
+
+            corrections_needed = []
+
+            for page_num in range(len(doc)):
+                page = doc[page_num]
+                current_rotation = page.rotation
+                page_rect = page.rect
+                page_width = page_rect.width
+                page_height = page_rect.height
+
+                # Aggressive correction rules for obvious issues
+                needs_correction = False
+                suggested_rotation = current_rotation
+
+                # Rule 1: 180° rotation is almost always wrong for normal documents
+                if current_rotation == 180:
+                    suggested_rotation = 0
+                    needs_correction = True
+                    self.log(f"   Page {page_num + 1}: Aggressive correction - 180° → 0° (180° is rarely correct)")
+
+                # Rule 2: 90° or 270° rotations should generally be corrected to 0° for consistency
+                elif current_rotation in [90, 270]:
+                    # Calculate what the aspect ratio would be after correction to 0°
+                    if page_width < page_height:
+                        # Currently portrait-oriented, would become landscape after correction
+                        corrected_aspect_ratio = page_height / page_width
+                    else:
+                        # Currently landscape-oriented, would become portrait after correction
+                        corrected_aspect_ratio = page_width / page_height
+
+                    # If the corrected aspect ratio is reasonable (landscape around 1.3-1.4), correct it
+                    if 1.2 <= corrected_aspect_ratio <= 1.5:
+                        # This would create a reasonable landscape document - correct to 0°
+                        suggested_rotation = 0
+                        needs_correction = True
+                        self.log(f"   Page {page_num + 1}: Aggressive correction - {current_rotation}° → 0° (would create reasonable landscape {corrected_aspect_ratio:.2f})")
+                    else:
+                        # Unusual aspect ratio - keep current rotation for safety
+                        needs_correction = False
+                        self.log(f"   Page {page_num + 1}: Keeping {current_rotation}° rotation (unusual aspect ratio {corrected_aspect_ratio:.2f})")
+
+                # Rule 2b: Check if current page dimensions suggest it should be landscape but isn't rotated
+                elif current_rotation == 0 and page_width > page_height:
+                    # Page is landscape-oriented but has 0° rotation - check if it should be portrait
+                    aspect_ratio = page_width / page_height
+                    if aspect_ratio > 1.5:  # Unusually wide landscape
+                        # This might be a portrait document that was incorrectly saved as landscape
+                        suggested_rotation = 90  # Try rotating to portrait
+                        needs_correction = True
+                        self.log(f"   Page {page_num + 1}: Aggressive correction - 0° → 90° (unusually wide landscape {aspect_ratio:.2f})")
+
+                # Rule 3: Check if the rotation creates an extremely unusual aspect ratio
+                elif current_rotation in [90, 270]:
+                    # After 90° rotation, check if aspect ratio is reasonable
+                    rotated_width = page_height  # What would be width after rotation
+                    rotated_height = page_width  # What would be height after rotation
+
+                    # If rotated aspect ratio is extreme (e.g., > 3:1), it's probably wrong
+                    aspect_ratio = max(rotated_width / rotated_height, rotated_height / rotated_width)
+                    if aspect_ratio > 3.0:
+                        suggested_rotation = 0
+                        needs_correction = True
+                        self.log(f"   Page {page_num + 1}: Aggressive correction - {current_rotation}° → 0° (extreme aspect ratio {aspect_ratio:.1f}:1)")
+
+                if needs_correction and suggested_rotation != current_rotation:
+                    corrections_needed.append((page_num, suggested_rotation))
+
+            doc.close()
+
+            # Apply corrections if needed
+            if corrections_needed:
+                self.log(f"📝 Applying {len(corrections_needed)} aggressive rotation corrections")
+                return self._apply_pymupdf_corrections(input_pdf_path, output_pdf_path, corrections_needed)
+
+            return False
+
+        except Exception as e:
+            self.log(f"   Aggressive correction failed: {str(e)}")
             return False
 
     def get_orientation_info(self, pdf_path: str) -> Dict[str, Any]:

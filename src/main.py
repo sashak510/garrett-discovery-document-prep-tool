@@ -25,7 +25,6 @@ from datetime import datetime
 from document_processor import GDIDocumentProcessor
 from file_scanner import FileScanner
 from pdf_converter import PDFConverter
-from line_numbering import LineNumberer
 from bates_numbering import BatesNumberer
 from logger_manager import LoggerManager
 
@@ -74,8 +73,7 @@ class GDIDocumentPrepGUI:
         # Initialize components
         self.file_scanner = FileScanner()
         self.pdf_converter = PDFConverter()
-        self.line_numberer = LineNumberer()
-        self.bates_numberer = BatesNumberer()
+                      self.bates_numberer = BatesNumberer()
         self.logger_manager = LoggerManager()
         
         # Apply loaded settings to components (but not dark mode yet - widgets don't exist)
@@ -452,8 +450,7 @@ class GDIDocumentPrepGUI:
                 file_naming_start=file_naming_start,
                 output_folder=output_folder,
                 log_callback=self.log_message,
-                line_numberer=self.line_numberer,  # Pass configured instance
-                bates_numberer=self.bates_numberer  # Pass configured instance
+                                bates_numberer=self.bates_numberer
             )
             
             # Run the processing

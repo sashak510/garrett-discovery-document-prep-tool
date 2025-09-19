@@ -13,9 +13,9 @@ from .base_pipeline import BasePipeline
 class ScanImagePipeline(BasePipeline):
     """Pipeline for processing scanned documents and image-based PDFs with universal 28-line grid numbering"""
 
-    def __init__(self, line_numberer, bates_numberer, logger_manager=None, universal_line_numberer=None):
+    def __init__(self, bates_numberer, logger_manager=None, universal_line_numberer=None):
         # Use universal line numbering system for consistent 28-line grid
-        super().__init__(line_numberer, bates_numberer, logger_manager)
+        super().__init__(bates_numberer, logger_manager)
         self.universal_line_numberer = universal_line_numberer
 
     def get_pipeline_type(self):
@@ -185,10 +185,13 @@ class ScanImagePipeline(BasePipeline):
             # 4) Add line numbers using universal line numbering system
             if self.universal_line_numberer:
                 # Use universal line numbering to add line numbers with true gutter
+                temp_lined_path = pdf_path.with_suffix(".lined.pdf")
                 line_success = self.universal_line_numberer.add_universal_line_numbers(
-                    pdf_path, pdf_path
+                    pdf_path, temp_lined_path
                 )
-                lines_added = 28  # Universal system always adds 28 lines per page
+                if line_success:
+                    shutil.move(str(temp_lined_path), str(pdf_path))
+                    lines_added = 28  # Universal system always adds 28 lines per page
             else:
                 # Fallback to old line numbering method
                 temp_lined_path = pdf_path.with_suffix(".lined.pdf")

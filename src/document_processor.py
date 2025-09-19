@@ -18,7 +18,6 @@ except ImportError:
 
 from file_scanner import FileScanner
 from pdf_converter import PDFConverter
-from line_numbering import LineNumberer
 from bates_numbering import BatesNumberer
 from logger_manager import LoggerManager
 from pipelines.text_pipeline import TextPipeline
@@ -34,7 +33,7 @@ class GDIDocumentProcessor:
     """Main document preparation processor that coordinates all operations"""
     
     def __init__(self, source_folder, bates_prefix, bates_start_number=1, file_naming_start=1, output_folder=None,
-                 log_callback=None, line_numberer=None, bates_numberer=None, file_limit=None):
+                 log_callback=None, bates_numberer=None, file_limit=None):
         """
         Initialize the document preparation processor
         
@@ -45,7 +44,6 @@ class GDIDocumentProcessor:
             file_naming_start (int): Starting number for file naming (defaults to 1)
             output_folder (str): Optional output folder (defaults to Processed folder in source parent)
             log_callback: Optional callback for logging messages
-            line_numberer: Pre-configured LineNumberer instance (optional)
             bates_numberer: Pre-configured BatesNumberer instance (optional)
             file_limit (int): Optional limit on number of files to process (None for all)
         """
@@ -84,13 +82,7 @@ class GDIDocumentProcessor:
         self.file_scanner = FileScanner(log_callback=log_callback)
         self.pdf_converter = PDFConverter(log_callback=log_callback)
 
-        # Use pre-configured instances if provided, otherwise create new ones
-        if line_numberer:
-            self.line_numberer = line_numberer
-            # Ensure the log callback is set
-            self.line_numberer.log_callback = log_callback
-        else:
-            self.line_numberer = LineNumberer(log_callback=log_callback)
+        # LineNumberer removed - using ImageLineNumberer and UniversalLineNumberer instead
 
         if bates_numberer:
             self.bates_numberer = bates_numberer
@@ -107,10 +99,10 @@ class GDIDocumentProcessor:
         # Initialize universal line numbering system (for compatibility)
         self.universal_line_numberer = UniversalLineNumberer(log_callback=log_callback)
 
-        # Initialize pipelines with image-based line numbering system
-        self.text_pipeline = TextPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.image_line_numberer)
-        self.native_pdf_pipeline = NativePDFPipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.image_line_numberer)
-        self.scan_image_pipeline = ScanImagePipeline(self.line_numberer, self.bates_numberer, self.logger_manager, self.image_line_numberer)
+        # Initialize pipelines with universal line numbering system (FIXED to use universal instead of image)
+        self.text_pipeline = TextPipeline(self.bates_numberer, self.logger_manager, self.universal_line_numberer)
+        self.native_pdf_pipeline = NativePDFPipeline(self.bates_numberer, self.logger_manager, self.universal_line_numberer)
+        self.scan_image_pipeline = ScanImagePipeline(self.bates_numberer, self.logger_manager, self.universal_line_numberer)
         
         # Processing state
         self.found_files = []
@@ -129,8 +121,6 @@ class GDIDocumentProcessor:
         """Log a message"""
         if self.log_callback:
             self.log_callback(message)
-        else:
-            print(message)
             
     def stop_processing(self):
         """Stop the processing"""
@@ -574,11 +564,11 @@ class GDIDocumentProcessor:
                         processing_notes = f"PDF classified as {doc_category}/{doc_subtype}"
                     else:
                         # Convert TIFF/other to PDF
-                        self.log(f"DEBUG: Converting {file_type} file {source_path.name} to PDF")
+                        # self.log(f"DEBUG: Converting {file_type} file {source_path.name} to PDF")
                         result = self.pdf_converter.convert_to_pdf(
                             str(source_path), str(pdf_path), perform_ocr=True
                         )
-                        self.log(f"DEBUG: Conversion result: {result}")
+                        # self.log(f"DEBUG: Conversion result: {result}")
                         
                         if isinstance(result, tuple):
                             conversion_success, doc_type, processing_notes = result
@@ -752,16 +742,16 @@ class GDIDocumentProcessor:
                 try:
                     # Check if PDF is landscape first
                     is_landscape, landscape_pages = self._check_landscape_pages(str(pdf_file))
-                    
+
                     if is_landscape:
                         # Move landscape file to failures
                         self._move_to_failures(pdf_file, f"Landscape document detected - {landscape_pages} landscape pages")
                         landscape_files_moved += 1
                         self.log(f"🔄 Moved to Failures: {pdf_file.name} (landscape document)")
-                        
+
                         # Remove from copied_files so it won't be processed by pipelines
                         self.copied_files = [f for f in self.copied_files if Path(f.get('copied_path', '')).name != pdf_file.name]
-                        
+
                         continue
                     
                     # Analyze PDF content and get layout warnings
@@ -839,9 +829,13 @@ class GDIDocumentProcessor:
                 if self._is_landscape_page(page):
                     landscape_pages += 1
             
-            # Consider it a landscape document if more than 75% of pages are landscape
+            # Consider it a landscape document if more than 90% of pages are landscape
             # Less aggressive threshold to avoid moving normal PDFs to failures
-            is_landscape = landscape_pages > total_pages * 0.75
+            # Skip landscape detection for single-page documents (often just rotation metadata)
+            if total_pages == 1:
+                is_landscape = False
+            else:
+                is_landscape = landscape_pages > total_pages * 0.90
             
             doc.close()
             
@@ -1339,8 +1333,8 @@ class GDIDocumentProcessor:
                         elif pipeline == 'complex':
                             doc_type = pdf_info.get('document_type', 'unknown')
                             # Debug: print the doc_type for files being processed
-                            if filename.startswith('0015_'):
-                                print(f"DEBUG: File {filename} has doc_type: {doc_type}")
+                            # if filename.startswith('0015_'):
+                                # print(f"DEBUG: File {filename} has doc_type: {doc_type}")
                             if doc_type in ['scanned', 'image_based', 'tiff', 'pdf_image']:
                                 pipeline_type = 'Scan/Image'
                             else:

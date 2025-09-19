@@ -33,8 +33,8 @@ from .base_pipeline import BasePipeline
 class TextPipeline(BasePipeline):
     """Complete v1-derived text processing pipeline using universal 28-line grid numbering"""
 
-    def __init__(self, line_numberer, bates_numberer, logger_manager=None, universal_line_numberer=None):
-        super().__init__(line_numberer, bates_numberer, logger_manager)
+    def __init__(self, bates_numberer, logger_manager=None, universal_line_numberer=None):
+        super().__init__(bates_numberer, logger_manager)
         self.universal_line_numberer = universal_line_numberer
         self.conversion_errors = []
     
@@ -54,7 +54,7 @@ class TextPipeline(BasePipeline):
         if hasattr(self.logger_manager, 'log'):
             self.logger_manager.log(message)
         else:
-            print(f"[TextPipeline] {message}")
+            pass
     
     def process_document(self, source_path, output_path, file_sequential_number, bates_prefix, bates_start_number):
         """

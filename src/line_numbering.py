@@ -580,8 +580,8 @@ class LineNumberer:
             x_position = self._calculate_optimal_gutter_position()
             lines_added = 0
             
-            self.log(f"DEBUG: Found {len(text_lines)} text fragments, grouped to {len(sorted_lines)} lines")
-            self.log(f"DEBUG: Placing {len(sorted_lines)} line numbers from top to bottom")
+            # self.log(f"DEBUG: Found {len(text_lines)} text fragments, grouped to {len(sorted_lines)} lines")
+            # self.log(f"DEBUG: Placing {len(sorted_lines)} line numbers from top to bottom")
             
             for i, line_data in enumerate(sorted_lines):
                 line_number = start_line + i
@@ -1381,7 +1381,7 @@ class LineNumberer:
         
         # CREATE THE TRUE GUTTER - actual additional space
         gutter_created = self._create_true_gutter(page, gutter_width, doc_path)
-        self.log(f"DEBUG: Legal grid gutter creation result: {gutter_created}")
+        # self.log(f"DEBUG: Legal grid gutter creation result: {gutter_created}")
         
         # Get updated page dimensions AFTER gutter creation and rotation fix
         page_rect = page.rect
@@ -1414,16 +1414,16 @@ class LineNumberer:
         
         # Add legal grid line numbers - no coordinate transformation needed since page is upright
         # Debug grid spacing calculation
-        self.log(f"DEBUG: Grid spacing - page_height: {page_rect.height}, top_margin: {self.top_margin}")
-        self.log(f"DEBUG: Grid spacing - usable_height: {usable_height}, line_spacing: {line_spacing:.2f}")
-        self.log(f"DEBUG: Grid spacing - target_lines: {target_lines_per_page}, lines_to_add: {lines_to_add}")
-        self.log(f"DEBUG: Grid spacing - gutter_created: {gutter_created}, gutter_width: {gutter_width}")
+        # self.log(f"DEBUG: Grid spacing - page_height: {page_rect.height}, top_margin: {self.top_margin}")
+        # self.log(f"DEBUG: Grid spacing - usable_height: {usable_height}, line_spacing: {line_spacing:.2f}")
+        # self.log(f"DEBUG: Grid spacing - target_lines: {target_lines_per_page}, lines_to_add: {lines_to_add}")
+        # self.log(f"DEBUG: Grid spacing - gutter_created: {gutter_created}, gutter_width: {gutter_width}")
         
         for i in range(lines_to_add):
             y_position = self.top_margin + (i * line_spacing)
             
             if y_position > (page_rect.height - self.top_margin):  # Stop if too close to bottom
-                self.log(f"DEBUG: Stopping at line {i+1}, y_position {y_position:.2f} > bottom margin {page_rect.height - self.top_margin}")
+                # self.log(f"DEBUG: Stopping at line {i+1}, y_position {y_position:.2f} > bottom margin {page_rect.height - self.top_margin}")
                 break
             
             line_number = start_line + i
@@ -1438,8 +1438,9 @@ class LineNumberer:
             
             # Debug first few and last few positions
             if i < 3 or i >= lines_to_add - 3:
-                self.log(f"DEBUG: Line {i+1}: position ({actual_x}, {y_position:.2f}), number {line_number}")
-            
+                # self.log(f"DEBUG: Line {i+1}: position ({actual_x}, {y_position:.2f}), number {line_number}")
+                pass
+
             try:
                 # Insert line number with transformed coordinates
                 page.insert_text(
@@ -1556,7 +1557,7 @@ class LineNumberer:
         except Exception as e:
             self.log(f"Warning: Could not create true gutter: {e}")
             import traceback
-            self.log(f"DEBUG: Gutter creation traceback: {traceback.format_exc()}")
+            # self.log(f"DEBUG: Gutter creation traceback: {traceback.format_exc()}")
             return False
 
     def _add_fallback_line_numbers(self, page, start_line, doc_path=None):

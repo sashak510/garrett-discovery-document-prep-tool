@@ -7,7 +7,13 @@ import fitz  # PyMuPDF
 from pathlib import Path
 from typing import Dict, Any, Optional
 import math
-from config import FOOTER_FONT_NAME, FOOTER_FONT_SIZE, FOOTER_FONT_COLOR
+import os
+import io
+from PIL import Image, ImageDraw, ImageFont
+from config import (
+    FOOTER_FONT_NAME, FOOTER_FONT_SIZE, FOOTER_FONT_COLOR,
+    LEGAL_FONT_NAME, LEGAL_FONT_SIZE_NORMAL, LINE_NUMBER_COLOR_RED
+)
 
 
 class UniversalLineNumberer:
@@ -30,9 +36,10 @@ class UniversalLineNumberer:
         self.lines_per_page = 28
         self.line_height = self.total_length / self.lines_per_page  # ~25.7 points per line
 
-        # Text formatting
-        self.font_size = 8
-        self.font_color = (0.5, 0.5, 0.5)  # Light grey
+        # Text formatting - use config values for legal documents
+        self.font_size = LEGAL_FONT_SIZE_NORMAL  # Use config: 8 points
+        self.font_color = LINE_NUMBER_COLOR_RED  # Use config: Red for line numbers
+        self.font_name = LEGAL_FONT_NAME  # Use config: Times-Roman
         self.background_color = (0.95, 0.95, 0.95)  # Very light grey background
 
         # Positioning
@@ -120,25 +127,46 @@ class UniversalLineNumberer:
             bool: True if successful
         """
         try:
+            # Check for double processing
+            doc_id = f"{input_pdf_path}_{input_pdf_path.stat().st_mtime}"
+            if hasattr(self, 'processed_documents') and doc_id in self.processed_documents:
+                self.log(f"⚠️ Document {input_pdf_path.name} already processed, skipping to prevent duplication")
+                return True
+
             self.log(f"Adding universal 28-line numbering to {input_pdf_path.name}")
 
             doc = fitz.open(str(input_pdf_path))
             total_pages = len(doc)
 
+            # Initialize processed pages tracking for this document
+            if not hasattr(self, 'processed_pages'):
+                self.processed_pages = set()
+            if not hasattr(self, 'processed_documents'):
+                self.processed_documents = set()
+
             for page_num in range(total_pages):
                 page = doc[page_num]
 
-                # Use hybrid processing for native PDFs: vector content + image-based line numbers
-                if page_num == 0 and self._is_native_pdf(input_pdf_path):
-                    self.log(f"📄 Using hybrid line numbering for native PDF {input_pdf_path.name}")
-                    self._add_hybrid_grid_to_page(page, page_num + 1)
-                else:
-                    # Use original image-based method for non-native PDFs or subsequent pages
-                    self._create_true_gutter(page, input_pdf_path.name)
-                    self._add_grid_to_page(page, page_num + 1)
+                # Check if this page has already been processed
+                page_id = f"{input_pdf_path.name}_page_{page_num}"
+                if page_id in self.processed_pages:
+                    self.log(f"⚠️ Page {page_num + 1} already processed, skipping to prevent duplication")
+                    continue
+
+                # Mark page as processed
+                self.processed_pages.add(page_id)
+
+                # Use PNG overlay for all document types to ensure consistent appearance
+                # Disable white masks when using PNG overlay to prevent white rectangles
+                if self._create_true_gutter(page, input_pdf_path.name, apply_white_masks=False):
+                    # Add PNG overlay for line numbering (consistent across all document types)
+                    self._add_line_numbers_as_image(page, self._get_line_strip_rect(page))
 
             doc.save(str(output_pdf_path), garbage=4, deflate=True, clean=True)
             doc.close()
+
+            # Mark document as processed
+            self.processed_documents.add(doc_id)
 
             self.log(f"✅ Universal line numbering completed for {input_pdf_path.name}")
             return True
@@ -366,7 +394,83 @@ class UniversalLineNumberer:
             raise
 
     def _add_line_numbers_as_image(self, page, start_y: float):
-        """Create line numbers as an image and overlay them to maintain image-based appearance"""
+        """Use pre-made PNG overlay for line numbers instead of generating text"""
+        try:
+            import tempfile
+            from PIL import Image
+
+            # Path to the pre-made line numbering PNG overlay
+            # Use the A4 gutter overlay that was already created
+            png_paths = [
+                "src/a4_gutter_overlay_transparent.png",  # Transparent version
+                "src/a4_gutter_overlay.png",              # Regular version
+                "a4_gutter_overlay_transparent.png",      # Root level transparent
+                "a4_gutter_overlay.png"                   # Root level regular
+            ]
+
+            line_numbers_img = None
+            png_path_used = None
+
+            # Try to load the pre-made PNG overlay
+            for png_path in png_paths:
+                try:
+                    if os.path.exists(png_path):
+                        line_numbers_img = Image.open(png_path)
+                        png_path_used = png_path
+                        self.log(f"🎯 LOADED PRE-MADE PNG OVERLAY: {png_path}")
+                        self.log(f"🎯 Image size: {line_numbers_img.size}")
+                        self.log(f"🎯 Image mode: {line_numbers_img.mode}")
+                        self.log(f"🎯 Image is transparent: {'transparency' in line_numbers_img.info or line_numbers_img.mode == 'RGBA'}")
+
+                        # Check if image has transparency
+                        if line_numbers_img.mode == 'RGBA':
+                            # Check if there are any transparent pixels
+                            extrema = line_numbers_img.getextrema()
+                            self.log(f"🎯 Alpha channel extrema: {extrema}")
+
+                            # Sample some pixels to check transparency
+                            pixels = list(line_numbers_img.getdata())
+                            transparent_pixels = sum(1 for p in pixels if len(p) == 4 and p[3] < 255)
+                            total_pixels = len(pixels)
+                            self.log(f"🎯 Transparent pixels: {transparent_pixels}/{total_pixels} ({transparent_pixels/total_pixels*100:.1f}%)")
+
+                        break
+                except Exception as e:
+                    continue
+
+            if line_numbers_img is None:
+                # Fallback: create text-based image if PNG not available
+                self.log("⚠️ Pre-made PNG not found, using fallback text generation")
+                return self._add_line_numbers_as_image_fallback(page, start_y)
+            else:
+                self.log(f"🎯 Successfully using PNG overlay, not text generation")
+
+            # Convert PIL image to bytes for PyMuPDF
+            import io
+            img_byte_arr = io.BytesIO()
+            line_numbers_img.save(img_byte_arr, format='PNG')
+            img_byte_arr = img_byte_arr.getvalue()
+
+            # Calculate position for line numbers image
+            line_numbers_rect = fitz.Rect(
+                self.gutter_margin,  # Left edge with margin
+                start_y,  # Top of grid
+                self.gutter_margin + self.gutter_width,  # Right edge
+                start_y + self.total_length  # Bottom of grid
+            )
+
+            # Insert the line numbers image directly from bytes
+            page.insert_image(line_numbers_rect, stream=img_byte_arr.getvalue())
+
+            self.log(f"🎯 APPLIED PRE-MADE PNG OVERLAY: rect={line_numbers_rect}, file={png_path_used}")
+
+        except Exception as e:
+            self.log(f"❌ Error creating line numbers as image: {str(e)}")
+            # Fallback to text-based image generation
+            return self._add_line_numbers_as_image_fallback(page, start_y)
+
+    def _add_line_numbers_as_image_fallback(self, page, start_y: float):
+        """Fallback method: Create line numbers as text-based image (original method)"""
         try:
             import tempfile
             from PIL import Image, ImageDraw, ImageFont
@@ -375,33 +479,12 @@ class UniversalLineNumberer:
             img_width = self.gutter_width
             img_height = self.total_length
 
-            # Create transparent background image (to blend with gutter background)
+            # Create transparent background image
             line_numbers_img = Image.new('RGBA', (int(img_width), int(img_height)), (255, 255, 255, 0))
             draw = ImageDraw.Draw(line_numbers_img)
 
-            # Try to use Times New Roman font, fallback to default
-            font = None
-            try:
-                font = ImageFont.truetype("times.ttf", self.font_size)
-            except:
-                try:
-                    font = ImageFont.truetype("/System/Library/Fonts/Times.ttc", self.font_size)
-                except:
-                    try:
-                        font = ImageFont.truetype("/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf", self.font_size)
-                    except:
-                        try:
-                            font = ImageFont.truetype("/System/Library/Fonts/Arial.ttf", self.font_size)
-                        except:
-                            # Use default font but with specified size
-                            try:
-                                font = ImageFont.load_default()
-                                # Try to get a reasonable size
-                                if hasattr(font, 'size'):
-                                    font.size = self.font_size
-                            except:
-                                pass
-
+            # Load font using config settings
+            font = self._load_font_for_line_numbers()
             if font is None:
                 raise Exception("Could not load any font")
 
@@ -413,33 +496,26 @@ class UniversalLineNumberer:
                 number_text = str(line_num)
                 digit_count = len(number_text)
 
-                # Calculate X position for centering based on digit count
+                # Calculate X position for centering
                 char_width = 4.8  # Approximate width of each character in points
                 text_width = digit_count * char_width
                 x_position = (self.gutter_width - text_width) / 2
 
-                # Convert to pixels for PIL (assuming 72 DPI)
+                # Convert to pixels
                 x_pixel = int(x_position)
                 y_pixel = int(y_position)
 
-                # Draw the number in grey (same color as vector line numbers)
-                draw.text((x_pixel, y_pixel), number_text, font=font, fill=(128, 128, 128, 255))
+                # Draw the number using config color
+                color_int = tuple(int(c * 255) for c in self.font_color) + (255,)
+                draw.text((x_pixel, y_pixel), number_text, font=font, fill=color_int)
 
-            # Save the image to a temporary file
-            with tempfile.NamedTemporaryFile(suffix='.png', delete=False) as tmp_file:
-                line_numbers_img.save(tmp_file.name, 'PNG')
-                tmp_path = tmp_file.name
-
-            # Convert PIL image to pixmap for PyMuPDF
+            # Convert to bytes for PyMuPDF
             import io
             img_byte_arr = io.BytesIO()
             line_numbers_img.save(img_byte_arr, format='PNG')
             img_byte_arr = img_byte_arr.getvalue()
 
-            # Create pixmap from image data
-            line_numbers_pix = fitz.Pixmap(img_byte_arr)
-
-            # Calculate position for line numbers image
+            # Calculate position and insert
             line_numbers_rect = fitz.Rect(
                 self.gutter_margin,  # Left edge with margin
                 start_y,  # Top of grid
@@ -447,39 +523,60 @@ class UniversalLineNumberer:
                 start_y + self.total_length  # Bottom of grid
             )
 
-            # Insert the line numbers image
-            page.insert_image(line_numbers_rect, pixmap=line_numbers_pix)
+            page.insert_image(line_numbers_rect, stream=img_byte_arr)
 
-            # Clean up
-            line_numbers_pix = None
-            import os
-            os.unlink(tmp_path)
+            self.log(f"📄 Applied fallback text-based line numbers: {line_numbers_rect}")
 
         except Exception as e:
-            self.log(f"❌ Error creating line numbers as image: {str(e)}")
-            # Fallback to vector line numbers
-            for line_num in range(1, self.lines_per_page + 1):
-                self._add_line_number(page, line_num, start_y)
+            self.log(f"❌ Error in fallback line numbering: {str(e)}")
+            raise
 
-    def _create_true_gutter(self, page, filename=None):
+    def _create_true_gutter(self, page, filename=None, apply_white_masks: bool = True):
         """
         Create a true gutter by shifting existing content inward within standard 8.5x11 page dimensions.
         This creates space for line numbers on the left while maintaining printable page size.
+        Implements robust guard and white masking to prevent duplication.
         """
         try:
-            # Check if content is already shifted (has gutter)
-            # Look for existing line numbers or check if content appears shifted
-            text_blocks = page.get_text("blocks")
-            if text_blocks:
-                # Check if text starts after margin + gutter width
-                total_gutter_space = self.gutter_margin + self.gutter_width
-                min_x = min(block[0] for block in text_blocks)
-                if min_x >= total_gutter_space - 5:  # Allow 5pt tolerance
-                    self.log(f"🚫 Skipping gutter creation - content already shifted (min_x: {min_x:.1f}pt)")
-                    return True
+            # Robust Guard: Check if gutter already created
+            if getattr(page, "_gd_true_gutter_done", False):
+                self.log(f"🚫 Skipping gutter creation - already done for this page")
+                return True
 
             original_rect = page.rect
             page_rotation = page.rotation
+
+            # CRITICAL: First, mask the gutter area with white rectangle to prevent ghosting
+            gutter_mask_rect = fitz.Rect(
+                0,  # Left edge
+                0,  # Top edge
+                self.gutter_margin + self.gutter_width,  # Right edge (margin + gutter width)
+                original_rect.height  # Full height
+            )
+
+            # Draw white rectangle to mask any existing content in gutter area
+            if apply_white_masks:
+                page.draw_rect(gutter_mask_rect, color=(1, 1, 1), fill=(1, 1, 1), width=0)
+                self.log(f"🎨 Applied white mask to gutter area: {gutter_mask_rect}")
+            else:
+                self.log(f"🎨 SKIPPED white mask to gutter area (PNG overlay mode)")
+
+            # Compute target content area with uniform scaling (Option A)
+            page_w = original_rect.width
+            page_h = original_rect.height
+            left_padding = self.gutter_margin + self.gutter_width
+
+            # Calculate uniform scale to make room for gutter
+            target_w = page_w - left_padding
+            scale = min(target_w / page_w, 1.0)  # Never scale up
+
+            new_w = page_w * scale
+            new_h = page_h * scale
+
+            # Position scaled content
+            dst_left = left_padding
+            dst_top = (page_h - new_h) / 2  # Center vertically
+            dst_rect = fitz.Rect(dst_left, dst_top, dst_left + new_w, dst_top + new_h)
 
             # Get the page content with proper rotation to ensure upright capture
             if page_rotation == 90:
@@ -495,24 +592,186 @@ class UniversalLineNumberer:
                 rotation_matrix = fitz.Matrix(1, 1)
                 pix = page.get_pixmap(matrix=rotation_matrix)
 
-            # Clear the page contents properly
+            # Clear the page contents completely
             page.clean_contents()
 
-            # Calculate content position - shift right by margin + gutter width
-            total_gutter_space = self.gutter_margin + self.gutter_width
-            content_width = original_rect.width - total_gutter_space
-            content_height = original_rect.height
+            # Insert the captured content using the calculated destination rect
+            page.insert_image(dst_rect, pixmap=pix)
 
-            # Insert the captured content shifted right by margin + gutter width
-            content_rect = fitz.Rect(total_gutter_space, 0, original_rect.width, original_rect.height)
-            page.insert_image(content_rect, pixmap=pix)
+            # CRITICAL: Apply white mask again after content insertion to ensure no bleed-through
+            if apply_white_masks:
+                page.draw_rect(gutter_mask_rect, color=(1, 1, 1), fill=(1, 1, 1), width=0)
+                self.log(f"🎨 Applied second white mask after content insertion")
+            else:
+                self.log(f"🎨 SKIPPED second white mask after content insertion (PNG overlay mode)")
 
-            self.log(f"✅ TRUE gutter created: content shifted right by {total_gutter_space}pt within 8.5x11 page")
+            # CRITICAL FIX: Set page rotation to 0 to fix sideways documents
+            if page_rotation != 0:
+                page.set_rotation(0)
+                self.log(f"🔄 Page rotation corrected: {page_rotation}° → 0°")
+
+            # Mark page as having gutter created (CRITICAL GUARD)
+            page._gd_true_gutter_done = True
+
+            self.log(f"✅ TRUE gutter created: scale={scale:.3f}, dst_rect={dst_rect}, white masking applied")
             return True
 
         except Exception as e:
             self.log(f"❌ Error creating true gutter: {str(e)}")
             return False
+
+    def _get_line_strip_rect(self, page) -> fitz.Rect:
+        """Calculate the line strip rectangle for the given page"""
+        page_rect = page.rect
+        page_height = page_rect.height
+
+        # Geometry constants
+        left = self.gutter_margin
+        right = left + self.gutter_width
+        strip_top = (page_height - self.total_length) / 2
+        strip_bottom = strip_top + self.total_length
+
+        return fitz.Rect(left, strip_top, right, strip_bottom)
+
+    def _add_line_numbers_as_image(self, page, line_rect: fitz.Rect):
+        """Use pre-made PNG overlay for line numbers instead of generating text"""
+        try:
+            # Path to the pre-made line numbering PNG overlay
+            png_paths = [
+                "src/a4_gutter_overlay_transparent.png",  # Transparent version
+                "src/a4_gutter_overlay.png",              # Regular version
+                "a4_gutter_overlay_transparent.png",      # Root level transparent
+                "a4_gutter_overlay.png"                   # Root level regular
+            ]
+
+            line_numbers_img = None
+            png_path_used = None
+
+            # Try to load the pre-made PNG overlay
+            for png_path in png_paths:
+                try:
+                    if os.path.exists(png_path):
+                        line_numbers_img = Image.open(png_path)
+                        png_path_used = png_path
+                        self.log(f"🎯 LOADED PRE-MADE PNG OVERLAY: {png_path}")
+                        self.log(f"🎯 Image size: {line_numbers_img.size}")
+                        self.log(f"🎯 Image mode: {line_numbers_img.mode}")
+                        self.log(f"🎯 Image is transparent: {line_numbers_img.mode == 'RGBA'}")
+
+                        # Check if image has transparency
+                        if line_numbers_img.mode == 'RGBA':
+                            # Check if there are any transparent pixels
+                            extrema = line_numbers_img.getextrema()
+                            self.log(f"🎯 Alpha channel extrema: {extrema}")
+
+                            # Sample some pixels to check transparency
+                            pixels = list(line_numbers_img.getdata())
+                            transparent_pixels = sum(1 for p in pixels if len(p) == 4 and p[3] < 255)
+                            total_pixels = len(pixels)
+                            self.log(f"🎯 Transparent pixels: {transparent_pixels}/{total_pixels} ({transparent_pixels/total_pixels*100:.1f}%)")
+
+                        break
+                except Exception as e:
+                    self.log(f"⚠️ Failed to load {png_path}: {e}")
+                    continue
+
+            if line_numbers_img is None:
+                # Fallback: create text-based image if PNG not available
+                self.log("⚠️ Pre-made PNG not found, using fallback text generation")
+                return self._add_line_numbers_as_image_fallback_text(page, line_rect)
+
+            # Convert PIL image to bytes for PyMuPDF
+            img_byte_arr = io.BytesIO()
+            line_numbers_img.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+
+            # Insert the pre-made PNG image into PDF
+            page.insert_image(line_rect, stream=img_bytes, keep_proportion=False)
+
+            self.log(f"🎯 APPLIED PRE-MADE PNG OVERLAY: rect={line_rect}, file={png_path_used}")
+
+        except Exception as e:
+            self.log(f"❌ Error creating line numbers as image: {str(e)}")
+            # Fallback to text-based image generation
+            return self._add_line_numbers_as_image_fallback_text(page, line_rect)
+
+    def _add_line_numbers_as_image_fallback_text(self, page, line_rect: fitz.Rect):
+        """Fallback method: Create line numbers as text-based image with correct config settings"""
+        try:
+            # Create PNG at 72 dpi with pixel size matching line_rect points
+            width_px = int(round(line_rect.width))
+            height_px = int(round(line_rect.height))
+
+            # Create transparent background image
+            img = Image.new("RGBA", (width_px, height_px), (255, 255, 255, 0))
+            draw = ImageDraw.Draw(img)
+
+            # Load font with config settings
+            font = self._load_font_for_line_numbers()
+
+            # Draw centered numbers for each line using config color
+            for i in range(self.lines_per_page):
+                y_center_px = round((i + 0.5) * (height_px / self.lines_per_page))
+                txt = str(i + 1)
+
+                # Measure text dimensions
+                bbox = draw.textbbox((0, 0), txt, font=font)
+                text_width = bbox[2] - bbox[0]
+                text_height = bbox[3] - bbox[1]
+
+                # Center the text
+                x = max(0, (width_px - text_width) // 2)
+                y = y_center_px - text_height // 2
+
+                # Draw number using config color (red) - CONVERTED TO INT!
+                color_int = tuple(int(c * 255) for c in self.font_color)
+                draw.text((x, y), txt, font=font, fill=color_int)
+
+            # Convert to PNG bytes
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='PNG')
+            img_bytes = img_byte_arr.getvalue()
+
+            # Insert image into PDF
+            page.insert_image(line_rect, stream=img_bytes, keep_proportion=False)
+
+            self.log(f"🎨 APPLIED FALLBACK TEXT OVERLAY WITH CONFIG COLOR: rect={line_rect}")
+
+        except Exception as e:
+            self.log(f"❌ Error in fallback text generation: {str(e)}")
+            raise
+
+    def _load_font_for_line_numbers(self):
+        """Load font with robust TTF fallback using config settings"""
+        # Use config font name and size
+        font_size = self.font_size
+
+        # Try to load the config font first
+        font_paths = []
+
+        # Add Times New Roman paths based on config font name
+        if "Times" in self.font_name:
+            font_paths.extend([
+                "C:/Windows/Fonts/times.ttf",
+                "C:/Windows/Fonts/timesnewroman.ttf",
+                "/Library/Fonts/Times New Roman.ttf",
+                "/System/Library/Fonts/Times.ttc",
+                "/System/Library/Fonts/Times New Roman.ttf",
+                "/usr/share/fonts/truetype/msttcorefonts/Times_New_Roman.ttf",
+                "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf",
+                "/usr/share/fonts/truetype/liberation/LiberationSerif-Regular.ttf"
+            ])
+
+        for font_path in font_paths:
+            try:
+                if os.path.exists(font_path):
+                    return ImageFont.truetype(font_path, font_size)
+            except:
+                continue
+
+        # Fallback to default font
+        self.log("⚠️ Using fallback font - consider installing TTF fonts")
+        return ImageFont.load_default()
 
     def add_filename_to_page(self, page, filename: str, page_number: int, total_pages: int):
         """
@@ -582,7 +841,7 @@ class UniversalLineNumberer:
                 self._add_footer_with_background(page, filename, bates_prefix, current_bates,
                                                page_num + 1, total_pages)
 
-            doc.save(str(output_path), garbage=4, deflate=True, clean=True)
+            doc.save(str(output_pdf_path), garbage=4, deflate=True, clean=True)
             doc.close()
 
             self.log(f"✅ Bates numbering and filename display completed for {input_pdf_path.name}")
@@ -733,6 +992,62 @@ class UniversalLineNumberer:
         except Exception as e:
             self.log(f"❌ Error adding Bates number to page: {str(e)}")
             # Don't raise - Bates numbering is critical but we'll let the main method handle the error
+
+    def _add_vector_grid_to_page(self, page, page_number: int):
+        """Add line numbers using vector-based processing for native PDFs to prevent duplication"""
+        try:
+            original_rect = page.rect
+            page_width = original_rect.width
+            page_height = original_rect.height
+
+            # Calculate line positions
+            line_spacing = self.total_length / (self.lines_per_page - 1)
+            start_y = (page_height - self.total_length) / 2
+
+            # CRITICAL: Create white gutter background using vector operations
+            gutter_rect = fitz.Rect(
+                0,  # Left edge
+                0,  # Top edge
+                self.gutter_margin + self.gutter_width,  # Right edge
+                page_height  # Full height
+            )
+
+            # Draw white rectangle to mask existing content - prevents ghosting
+            page.draw_rect(gutter_rect, color=(1, 1, 1), fill=(1, 1, 1), width=0)
+            self.log(f"🎨 Applied vector white mask to gutter area")
+
+            # Add line numbers directly as vector text
+            for i in range(1, self.lines_per_page + 1):
+                y_pos = start_y + (i - 1) * line_spacing
+
+                # Center align text in gutter
+                text_x = self.gutter_margin + (self.gutter_width / 2)
+
+                # Use red color for line numbers
+                page.insert_text(
+                    fitz.Point(text_x, y_pos),
+                    str(i),
+                    fontname="helv",  # Use helvetica for better vector rendering
+                    fontsize=self.font_size,
+                    color=self.line_number_color,
+                    rotate=0,
+                    align=fitz.TEXT_ALIGN_CENTER
+                )
+
+            # Add vertical separator line
+            separator_x = self.gutter_margin + self.gutter_width
+            page.draw_line(
+                fitz.Point(separator_x, start_y),
+                fitz.Point(separator_x, start_y + self.total_length),
+                color=(0.8, 0.8, 0.8),  # Light grey separator
+                width=0.5
+            )
+
+            self.log(f"✅ Added vector grid to page {page_number}")
+
+        except Exception as e:
+            self.log(f"❌ Error adding vector grid to page {page_number}: {str(e)}")
+            raise
 
     def get_specifications(self) -> Dict[str, Any]:
         """Get the current numbering specifications"""

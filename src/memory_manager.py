@@ -20,7 +20,7 @@ try:
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
-    print("Warning: psutil not available - memory monitoring will be limited")
+    pass
 
 
 class MemoryState(Enum):
@@ -72,7 +72,7 @@ class MemoryManager:
         try:
             memory_info = self.get_memory_info()
             log_message = f"[MEMORY] {message} | Usage: {memory_info['percent_used']:.1f}% | " \
-                         f"Available: {memory_info['available_mb']:.1f}MB | " \
+                         f"Available: {memory_info['system_available_mb']:.1f}MB | " \
                          f"Processed: {self.processed_files_count}"
 
             if level == "ERROR":

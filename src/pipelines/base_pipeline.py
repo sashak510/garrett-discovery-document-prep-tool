@@ -21,8 +21,7 @@ except ImportError:
 class BasePipeline(ABC):
     """Base class for all document processing pipelines"""
     
-    def __init__(self, line_numberer, bates_numberer, logger_manager=None):
-        self.line_numberer = line_numberer
+    def __init__(self, bates_numberer, logger_manager=None):
         self.bates_numberer = bates_numberer
         self.logger_manager = logger_manager
         self.log = self._get_logger()

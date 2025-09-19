@@ -65,8 +65,6 @@ class BatesNumberer:
         """Log a message using the callback or print"""
         if self.log_callback:
             self.log_callback(message)
-        else:
-            print(message)
             
     def add_bates_number(self, input_pdf_path, output_pdf_path, prefix, number):
         """

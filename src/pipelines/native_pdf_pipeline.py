@@ -11,9 +11,9 @@ from .base_pipeline import BasePipeline
 class NativePDFPipeline(BasePipeline):
     """Pipeline for processing native PDF documents with universal 28-line grid numbering"""
 
-    def __init__(self, line_numberer, bates_numberer, logger_manager=None, universal_line_numberer=None):
+    def __init__(self, bates_numberer, logger_manager=None, universal_line_numberer=None):
         # Use universal line numbering system for consistent 28-line grid
-        super().__init__(line_numberer, bates_numberer, logger_manager)
+        super().__init__(bates_numberer, logger_manager)
         self.universal_line_numberer = universal_line_numberer
     
     def get_pipeline_type(self):
@@ -42,8 +42,8 @@ class NativePDFPipeline(BasePipeline):
             dict: Processing results
         """
         try:
-            self.log(f"[DEBUG] NativePDFPipeline processing: {source_path.name}")
-            self.log(f"[DEBUG] Universal line numberer available: {self.universal_line_numberer is not None}")
+            # self.log(f"[DEBUG] NativePDFPipeline processing: {source_path.name}")
+            # self.log(f"[DEBUG] Universal line numberer available: {self.universal_line_numberer is not None}")
             # Step 1: Copy source to working location
             pdf_path = output_path.with_suffix('.working.pdf')
             shutil.copy2(str(source_path), str(pdf_path))
@@ -51,14 +51,14 @@ class NativePDFPipeline(BasePipeline):
             # Step 2: Add universal 28-line grid numbering
             temp_lined_path = pdf_path.with_suffix('.lined.pdf')
             if self.universal_line_numberer:
-                self.log(f"[DEBUG] Using universal line numbering for {source_path.name}")
+                # self.log(f"[DEBUG] Using universal line numbering for {source_path.name}")
                 line_success = self.universal_line_numberer.add_universal_line_numbers(
                     pdf_path, temp_lined_path
                 )
-                self.log(f"[DEBUG] Universal line numbering result: {line_success}")
+                # self.log(f"[DEBUG] Universal line numbering result: {line_success}")
             else:
                 # Fallback to base pipeline method if universal line numberer not available
-                self.log(f"[DEBUG] Universal line numberer not available, using fallback for {source_path.name}")
+                # self.log(f"[DEBUG] Universal line numberer not available, using fallback for {source_path.name}")
                 line_success, _ = self.add_text_line_numbers(
                     str(pdf_path), str(temp_lined_path), 1
                 )

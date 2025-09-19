@@ -15,7 +15,6 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from document_processor import GDIDocumentProcessor
 from file_scanner import FileScanner
 from pdf_converter import PDFConverter
-from line_numbering import LineNumberer
 from bates_numbering import BatesNumberer
 from logger_manager import LoggerManager
 from universal_line_numbering import UniversalLineNumberer
@@ -89,7 +88,6 @@ def main():
         print("Initializing components...")
         file_scanner = FileScanner()
         pdf_converter = PDFConverter()
-        line_numberer = LineNumberer()
         bates_numberer = BatesNumberer()
         logger_manager = LoggerManager()
         
@@ -102,7 +100,6 @@ def main():
             file_naming_start=file_naming_start,
             output_folder=output_folder,
             log_callback=log_callback,
-            line_numberer=line_numberer,
             bates_numberer=bates_numberer,
             file_limit=file_limit
         )

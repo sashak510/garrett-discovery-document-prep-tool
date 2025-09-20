@@ -218,8 +218,10 @@ class BatesNumberer:
         rectangle_width = estimated_text_width + (padding * 2)
         rectangle_height = self.font_size + (padding * 2)
         
-        # Use larger margins to avoid content overlap
-        safe_margin = max(self.margin, self.min_margin)  # Ensure minimum margin from edge
+        # Use margins to mirror filename positioning from left edge
+        # Filename positioning: BOTTOM_MARGIN_POINTS (20) + gutter_width (18) + padding (18) = 56 points
+        filename_distance_from_left = config.BOTTOM_MARGIN_POINTS + (config.GUTTER_WIDTH_INCHES * 72) + (0.25 * 72)
+        safe_margin = max(self.margin, self.min_margin, filename_distance_from_left)  # Mirror filename distance
         
         if self.position == 'bottom_right':
             x_pos = width - safe_margin - rectangle_width/2  # Position rectangle center

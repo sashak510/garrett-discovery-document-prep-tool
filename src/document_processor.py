@@ -17,16 +17,28 @@ try:
 except ImportError:
     fitz = None
 
-from .file_scanner import FileScanner
-from .pdf_converter import PDFConverter
-from .bates_numbering import BatesNumberer
-from .logger_manager import LoggerManager
-from .pipelines.text_pipeline import TextPipeline
-from .pipelines.native_pdf_pipeline import NativePDFPipeline
-from .pipelines.scan_image_pipeline import ScanImagePipeline
-from .error_handling import ErrorHandler, ValidationError, ProcessingError
-from .memory_manager import MemoryManager, MemoryConfig
-from .vector_line_numbering import VectorLineNumberer
+try:
+    from .file_scanner import FileScanner
+    from .pdf_converter import PDFConverter
+    from .bates_numbering import BatesNumberer
+    from .logger_manager import LoggerManager
+    from .pipelines.text_pipeline import TextPipeline
+    from .pipelines.native_pdf_pipeline import NativePDFPipeline
+    from .pipelines.scan_image_pipeline import ScanImagePipeline
+    from .error_handling import ErrorHandler, ValidationError, ProcessingError
+    from .memory_manager import MemoryManager, MemoryConfig
+    from .vector_line_numbering import VectorLineNumberer
+except ImportError:
+    from file_scanner import FileScanner
+    from pdf_converter import PDFConverter
+    from bates_numbering import BatesNumberer
+    from logger_manager import LoggerManager
+    from pipelines.text_pipeline import TextPipeline
+    from pipelines.native_pdf_pipeline import NativePDFPipeline
+    from pipelines.scan_image_pipeline import ScanImagePipeline
+    from error_handling import ErrorHandler, ValidationError, ProcessingError
+    from memory_manager import MemoryManager, MemoryConfig
+    from vector_line_numbering import VectorLineNumberer
 
 
 class GDIDocumentProcessor:

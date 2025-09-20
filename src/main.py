@@ -19,6 +19,17 @@ import logging
 from pathlib import Path
 from datetime import datetime
 
+# Ensure src directory is in Python path when running main.py directly
+if __name__ == "__main__":
+    script_dir = Path(__file__).parent
+    if script_dir.name == "src":
+        # We're in src directory, add parent to path
+        sys.path.insert(0, str(script_dir.parent))
+    else:
+        # We're being run from elsewhere, ensure src is in path
+        src_dir = Path(__file__).parent
+        sys.path.insert(0, str(src_dir))
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QLineEdit, QPushButton, QTextEdit, QProgressBar, QFrame,
@@ -33,13 +44,24 @@ from PyQt6.QtGui import (
 )
 
 # Import our custom modules
-from .document_processor import GDIDocumentProcessor
-from .file_scanner import FileScanner
-from .pdf_converter import PDFConverter
-from .bates_numbering import BatesNumberer
-from .logger_manager import LoggerManager
-from .error_handling import ErrorHandler, ValidationError
-from .dependency_checker import DependencyChecker
+try:
+    # Try relative imports first (when running as package)
+    from .document_processor import GDIDocumentProcessor
+    from .file_scanner import FileScanner
+    from .pdf_converter import PDFConverter
+    from .bates_numbering import BatesNumberer
+    from .logger_manager import LoggerManager
+    from .error_handling import ErrorHandler, ValidationError
+    from .dependency_checker import DependencyChecker
+except ImportError:
+    # Fall back to absolute imports (when running directly)
+    from document_processor import GDIDocumentProcessor
+    from file_scanner import FileScanner
+    from pdf_converter import PDFConverter
+    from bates_numbering import BatesNumberer
+    from logger_manager import LoggerManager
+    from error_handling import ErrorHandler, ValidationError
+    from dependency_checker import DependencyChecker
 
 
 class ProcessingWorker(QObject):
@@ -110,15 +132,6 @@ class GDIDocumentPrepGUI(QMainWindow):
         # Processing thread
         self.processing_worker = None
         self.processing_thread = None
-
-# Import our custom modules
-from .document_processor import GDIDocumentProcessor
-from .file_scanner import FileScanner
-from .pdf_converter import PDFConverter
-from .bates_numbering import BatesNumberer
-from .logger_manager import LoggerManager
-from .error_handling import ErrorHandler, ValidationError
-from .dependency_checker import DependencyChecker
 
         # Setup UI first (needed for logging)
         self.setup_ui()
@@ -686,7 +699,10 @@ Tips:
         try:
             if sys.platform == "win32":
                 os.startfile(str(output_path))
-            else:
+            elif sys.platform == "darwin":  # macOS
+                import subprocess
+                subprocess.run(['open', str(output_path)])
+            else:  # Linux and other Unix-like systems
                 import subprocess
                 subprocess.run(['xdg-open', str(output_path)])
 
@@ -697,10 +713,13 @@ Tips:
             self.log_message(f"Error opening output folder: {str(e)}")
 
     def log_message(self, message: str):
-        """Add message to log display"""
+        """Add message to log display and auto-scroll to bottom"""
         timestamp = datetime.now().strftime("%H:%M:%S")
         formatted_message = f"[{timestamp}] {message}\n"
         self.log_display.append(formatted_message)
+        # Auto-scroll to the bottom to show latest message
+        scrollbar = self.log_display.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
 
     def toggle_theme(self):
         """Toggle between light and dark themes with professional icons and smooth transitions"""

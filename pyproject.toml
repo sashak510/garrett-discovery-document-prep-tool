@@ -1,0 +1,177 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "garrett-discovery-document-prep-tool"
+version = "1.0.0"
+description = "Professional document processing tool for legal discovery"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Garrett Discovery", email = "info@garrettdiscovery.com"},
+]
+maintainers = [
+    {name = "Garrett Discovery", email = "info@garrettdiscovery.com"},
+]
+keywords = ["legal", "discovery", "document", "processing", "bates", "numbering", "ocr", "pdf"]
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Legal Industry",
+    "Topic :: Office/Business :: Legal",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: POSIX :: Linux",
+    "Environment :: X11 Applications :: Qt",
+]
+requires-python = ">=3.9"
+dependencies = [
+    "PyMuPDF>=1.24.0",
+    "PyPDF2>=3.0.1",
+    "reportlab>=4.1.0",
+    "pillow>=10.4.0",
+    "pytesseract>=0.3.13",
+    "imutils>=0.5.4",
+    "python-docx>=1.1.2",
+    "openpyxl>=3.1.3",
+    "psutil>=5.9.8",
+    "PyQt6>=6.6.0",
+    "pywin32>=307;platform_system=='Windows'",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "flake8>=6.0.0",
+    "mypy>=1.0.0",
+    "pre-commit>=3.0.0",
+    "pytest-qt>=4.0.0",
+]
+build = [
+    "PyInstaller>=5.0.0",
+    "build>=0.10.0",
+]
+ocr = [
+    "tesseract>=5.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/garrettdiscovery/document-prep-tool"
+Documentation = "https://github.com/garrettdiscovery/document-prep-tool/wiki"
+Repository = "https://github.com/garrettdiscovery/document-prep-tool"
+"Bug Tracker" = "https://github.com/garrettdiscovery/document-prep-tool/issues"
+
+[project.scripts]
+garrett-discovery-tool = "src.main:main"
+
+[project.gui-scripts]
+garrett-discovery-gui = "src.main:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+"*" = ["assets/*.*", "assets/icons/*.*", "assets/fonts/*.*", "config/*.*"]
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings",
+    "--cov=src",
+    "--cov-report=term-missing",
+    "--cov-report=html:htmlcov",
+    "--cov-fail-under=80",
+]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "unit: Unit tests for individual components",
+    "integration: Integration tests for multiple components",
+    "slow: Tests that take a long time to run",
+    "gui: Tests that require GUI components",
+    "requires_ocr: Tests that require OCR dependencies",
+]
+
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*",
+    "*/__pycache__/*",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # directories
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | build
+  | dist
+)/
+'''
+
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+check_untyped_defs = true
+disallow_untyped_decorators = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+warn_unreachable = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = [
+    "PyQt6.*",
+    "fitz.*",
+    "PIL.*",
+    "reportlab.*",
+    "pytesseract.*",
+    "docx.*",
+    "openpyxl.*",
+    "psutil.*",
+    "imutils.*",
+]
+ignore_missing_imports = true

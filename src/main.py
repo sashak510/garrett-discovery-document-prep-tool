@@ -11,879 +11,997 @@ Requirements:
 - Generate comprehensive logs
 """
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-import os
 import sys
+import os
+import json
 import threading
 import logging
-import json
 from pathlib import Path
 from datetime import datetime
 
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
+    QLabel, QLineEdit, QPushButton, QTextEdit, QProgressBar, QFrame,
+    QGroupBox, QFileDialog, QMessageBox, QScrollArea
+)
+from PyQt6.QtCore import (
+    Qt, QThread, pyqtSignal, QObject, QTimer, QSize
+)
+from PyQt6.QtGui import (
+    QIcon, QFont, QPixmap, QPainter, QPalette, QColor,
+    QAction, QKeySequence, QCursor
+)
+
 # Import our custom modules
-from document_processor import GDIDocumentProcessor
-from file_scanner import FileScanner
-from pdf_converter import PDFConverter
-from bates_numbering import BatesNumberer
-from logger_manager import LoggerManager
+from .document_processor import GDIDocumentProcessor
+from .file_scanner import FileScanner
+from .pdf_converter import PDFConverter
+from .bates_numbering import BatesNumberer
+from .logger_manager import LoggerManager
+from .error_handling import ErrorHandler, ValidationError
+from .dependency_checker import DependencyChecker
 
 
-class GDIDocumentPrepGUI:
-    def __init__(self, root):
-        self.root = root
-        
-        # Hide window initially to prevent glitching during setup
-        self.root.withdraw()
-        
-        # Set window icon EARLY for better taskbar integration
-        self._set_window_icon()
-        
-        self.root.title("Garrett Discovery Document Prep Tool")
-        self.root.geometry("800x600")
-        self.root.minsize(600, 400)
-        
+class ProcessingWorker(QObject):
+    """Worker thread for document processing to prevent UI freezing"""
+
+    # Signals for communication with main thread
+    progress_update = pyqtSignal(int, str)  # progress percentage, current file
+    log_message = pyqtSignal(str)
+    processing_complete = pyqtSignal(bool, str)  # success, message
+    error_occurred = pyqtSignal(str)
+
+    def __init__(self, processor):
+        super().__init__()
+        self.processor = processor
+        self._is_running = False
+        self._should_stop = False
+
+    def run_processing(self):
+        """Run the document processing"""
+        self._is_running = True
+        self._should_stop = False
+
+        try:
+            success = self.processor.process_all_documents()
+            if success and not self._should_stop:
+                self.processing_complete.emit(True, "Document preparation completed successfully!")
+            elif self._should_stop:
+                self.processing_complete.emit(False, "Processing was stopped by user.")
+            else:
+                self.processing_complete.emit(False, "Processing completed with errors.")
+        except Exception as e:
+            self.error_occurred.emit(f"An error occurred during processing: {str(e)}")
+        finally:
+            self._is_running = False
+
+    def stop_processing(self):
+        """Stop the processing"""
+        self._should_stop = True
+        if hasattr(self.processor, 'stop_processing'):
+            self.processor.stop_processing()
+
+    def is_running(self) -> bool:
+        return self._is_running
+
+
+class GDIDocumentPrepGUI(QMainWindow):
+    def __init__(self):
+        super().__init__()
+
+        # Window setup
+        self.setWindowTitle("Garrett Discovery Document Prep Tool")
+        self.setGeometry(100, 100, 1000, 700)
+        self.setMinimumSize(800, 600)
+
+        # Variables
+        self.input_folder = ""
+        self.output_folder = ""
+        self.file_naming_start = "0001"
+        self.bates_prefix = ""
+        self.bates_start_number = "0001"
+        self.is_processing = False
+        self.processor = None
+        self.dark_mode = False
+
         # Config file path
         self.config_file = Path(__file__).parent.parent / "config.json"
-        
-        # Variables
-        self.input_folder = tk.StringVar()
-        self.output_folder = tk.StringVar()
-        # File naming variables
-        self.file_naming_start = tk.StringVar(value="0001")
-        
-        # Bates numbering variables  
-        self.bates_prefix = tk.StringVar(value="")
-        self.bates_start_number = tk.StringVar(value="0001")
-        self.processing = False
-        self.processor = None  # Reference to the document processor
-        
-        # Settings variables (colors are now hardcoded)
-        # Line numbers: Nice red color, Times New Roman font
-        # Bates numbers: Black color, Times New Roman font
-        
-        # Dark mode state
-        self.dark_mode = tk.BooleanVar(value=False)
-        
-        # Settings removed - colors are hardcoded in base pipeline
-        
-        # Load saved settings (file naming and bates only)
-        self._load_settings()
-        
-        # Initialize components
-        self.file_scanner = FileScanner()
-        self.pdf_converter = PDFConverter()
-                      self.bates_numberer = BatesNumberer()
-        self.logger_manager = LoggerManager()
-        
-        # Apply loaded settings to components (but not dark mode yet - widgets don't exist)
-        self._apply_loaded_settings()
-        
+
+        # Processing thread
+        self.processing_worker = None
+        self.processing_thread = None
+
+# Import our custom modules
+from .document_processor import GDIDocumentProcessor
+from .file_scanner import FileScanner
+from .pdf_converter import PDFConverter
+from .bates_numbering import BatesNumberer
+from .logger_manager import LoggerManager
+from .error_handling import ErrorHandler, ValidationError
+from .dependency_checker import DependencyChecker
+
+        # Setup UI first (needed for logging)
         self.setup_ui()
-        
-        # Apply dark mode after UI is created
-        self.apply_dark_mode()
-        
-        # Update dark mode button image after UI is created
-        if hasattr(self, 'dark_mode_button') and hasattr(self, 'night_mode_off_image') and hasattr(self, 'night_mode_on_image'):
-            if self.dark_mode.get():
-                self.dark_mode_button.configure(image=self.night_mode_on_image)
-                self.dark_mode_button.image = self.night_mode_on_image
-            else:
-                self.dark_mode_button.configure(image=self.night_mode_off_image)
-                self.dark_mode_button.image = self.night_mode_off_image
-        
-        # Center window and show it cleanly
-        self._center_window()
-        self.root.deiconify()
-        
-        # Save settings when window is closed
-        self.root.protocol("WM_DELETE_WINDOW", self._on_closing)
-        
+
+        # Check dependencies after UI is ready
+        self.dependency_checker = DependencyChecker(log_callback=self.log_message)
+        dependency_status = self.dependency_checker.check_dependencies()
+
+        # If required dependencies are missing, show error and exit
+        if not self.dependency_checker.can_start_application():
+            missing_deps = self.dependency_checker.get_missing_required_dependencies()
+            error_msg = f"Required dependencies missing: {', '.join(missing_deps)}\n\nPlease install the required dependencies using the installer."
+            QMessageBox.critical(self, "Missing Dependencies", error_msg)
+            sys.exit(1)
+
+        # Load saved settings
+        self._load_settings()
+
+        # Apply theme
+        self.apply_theme()
+
+        # Show startup info
+        self._show_startup_info()
+
+        # Center window
+        self.center_window()
+
+        # Set window icon
+        self.set_app_icon()
+
+        # Setup keyboard shortcuts
+        self.setup_keyboard_shortcuts()
+
+    def setup_keyboard_shortcuts(self):
+        """Configure keyboard shortcuts for better accessibility"""
+        # Create actions for keyboard shortcuts
+        # Ctrl+O for opening input folder
+        input_folder_action = QAction("Open Input Folder", self)
+        input_folder_action.setShortcut(QKeySequence("Ctrl+O"))
+        input_folder_action.triggered.connect(self.browse_input_folder)
+        self.addAction(input_folder_action)
+
+        # Ctrl+S for opening output folder
+        output_folder_action = QAction("Open Output Folder", self)
+        output_folder_action.setShortcut(QKeySequence("Ctrl+S"))
+        output_folder_action.triggered.connect(self.browse_output_folder)
+        self.addAction(output_folder_action)
+
+        # Ctrl+Enter or F5 to start processing
+        start_processing_action = QAction("Start Processing", self)
+        start_processing_action.setShortcut(QKeySequence("Ctrl+Return"))
+        start_processing_action.triggered.connect(self.start_processing)
+        self.addAction(start_processing_action)
+
+        f5_action = QAction("Start Processing", self)
+        f5_action.setShortcut(QKeySequence("F5"))
+        f5_action.triggered.connect(self.start_processing)
+        self.addAction(f5_action)
+
+        # Ctrl+P or Escape to pause/resume processing
+        pause_action = QAction("Pause/Resume", self)
+        pause_action.setShortcut(QKeySequence("Ctrl+P"))
+        pause_action.triggered.connect(self.pause_processing)
+        self.addAction(pause_action)
+
+        escape_action = QAction("Pause/Resume", self)
+        escape_action.setShortcut(QKeySequence("Escape"))
+        escape_action.triggered.connect(self.pause_processing)
+        self.addAction(escape_action)
+
+        # Ctrl+L to clear log
+        clear_log_action = QAction("Clear Log", self)
+        clear_log_action.setShortcut(QKeySequence("Ctrl+L"))
+        clear_log_action.triggered.connect(self.clear_log)
+        self.addAction(clear_log_action)
+
+        # Ctrl+D to toggle dark mode
+        toggle_theme_action = QAction("Toggle Theme", self)
+        toggle_theme_action.setShortcut(QKeySequence("Ctrl+D"))
+        toggle_theme_action.triggered.connect(self.toggle_theme)
+        self.addAction(toggle_theme_action)
+
+        # Ctrl+W or Ctrl+Q to exit
+        exit_action = QAction("Exit", self)
+        exit_action.setShortcut(QKeySequence("Ctrl+W"))
+        exit_action.triggered.connect(self.close)
+        self.addAction(exit_action)
+
+        exit_action2 = QAction("Exit", self)
+        exit_action2.setShortcut(QKeySequence("Ctrl+Q"))
+        exit_action2.triggered.connect(self.close)
+        self.addAction(exit_action2)
+
+        # F1 for help
+        help_action = QAction("Help", self)
+        help_action.setShortcut(QKeySequence("F1"))
+        help_action.triggered.connect(self.show_help)
+        self.addAction(help_action)
+
+    def show_help(self):
+        """Show help dialog with keyboard shortcuts"""
+        help_text = """Garrett Discovery Document Prep Tool - Keyboard Shortcuts
+
+File Operations:
+• Ctrl+O: Browse for input folder
+• Ctrl+S: Browse for output folder
+
+Processing:
+• Ctrl+Enter or F5: Start processing
+• Ctrl+P or Escape: Pause/Resume processing
+• Ctrl+L: Clear log
+
+Interface:
+• Ctrl+D: Toggle dark/light theme
+• Tab: Navigate between fields
+• Shift+Tab: Navigate backwards
+
+Application:
+• F1: Show this help
+• Ctrl+W or Ctrl+Q: Exit application
+
+Tips:
+• Use Tab to navigate between input fields
+• Press Enter to trigger default button actions
+• All fields are validated before processing
+• Settings are automatically saved"""
+
+        # Create help dialog
+        help_dialog = QMessageBox(self)
+        help_dialog.setWindowTitle("Keyboard Shortcuts Help")
+        help_dialog.setTextFormat(Qt.TextFormat.RichText)
+        help_dialog.setText(help_text.replace('\n', '<br>'))
+        help_dialog.exec()
+
     def setup_ui(self):
         """Set up the user interface"""
-        # Main frame - reduced padding for more compact look
-        main_frame = ttk.Frame(self.root, padding="8")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Configure grid weights
-        self.root.columnconfigure(0, weight=1)
-        self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
-        
-        # Title and settings - more compact
-        title_frame = ttk.Frame(main_frame)
-        title_frame.grid(row=0, column=0, columnspan=3, pady=(0, 12), sticky=(tk.W, tk.E))
-        title_frame.columnconfigure(0, weight=1)
-        
-        title_label = ttk.Label(title_frame, text="Garrett Discovery Document Prep Tool", 
-                               font=("Arial", 14, "bold"))
-        title_label.grid(row=0, column=0, sticky=tk.W)
-        
-        # Settings removed - colors are hardcoded in base pipeline
-        
-        # Dark mode toggle button with image
-        try:
-            # Try to load the night mode images from assets directory
-            self.night_mode_off_image = tk.PhotoImage(file="assets/night-mode.png")
-            self.night_mode_on_image = tk.PhotoImage(file="assets/night-mode (1).png")
-            # Resize if needed
-            self.night_mode_off_image = self.night_mode_off_image.subsample(32, 32)
-            self.night_mode_on_image = self.night_mode_on_image.subsample(32, 32)
-            
-            # Create dark mode button with initial image
-            self.dark_mode_button = ttk.Button(title_frame, 
-                                             image=self.night_mode_off_image, 
-                                             width=4,
-                                             command=self.toggle_dark_mode)
-            # Keep references to prevent garbage collection
-            self.dark_mode_button.image = self.night_mode_off_image
-        except (tk.TclError, FileNotFoundError):
-            # Fallback to text if images not found
-            self.dark_mode_button = ttk.Button(title_frame, text="🌙", width=4,
-                                             command=self.toggle_dark_mode)
-        self.dark_mode_button.grid(row=0, column=2, sticky=tk.E, padx=(0, 0))
-        
-        # Input folder selection - more compact
-        ttk.Label(main_frame, text="Input Folder:").grid(row=1, column=0, sticky=tk.W, pady=3)
-        self.input_entry = ttk.Entry(main_frame, textvariable=self.input_folder, width=45)
-        self.input_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=(8, 4), pady=3)
-        ttk.Button(main_frame, text="Browse", 
-                  command=self.browse_input_folder).grid(row=1, column=2, pady=3, padx=(4, 0))
-        
-        # Output folder selection - more compact
-        ttk.Label(main_frame, text="Output Folder:").grid(row=2, column=0, sticky=tk.W, pady=3)
-        self.output_entry = ttk.Entry(main_frame, textvariable=self.output_folder, width=45)
-        self.output_entry.grid(row=2, column=1, sticky=(tk.W, tk.E), padx=(8, 4), pady=3)
-        ttk.Button(main_frame, text="Browse", 
-                  command=self.browse_output_folder).grid(row=2, column=2, pady=3, padx=(4, 0))
-        
+        # Create central widget and main layout
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        main_layout = QVBoxLayout(central_widget)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(15)
+
+        # Create header
+        header_widget = self.create_header()
+        main_layout.addWidget(header_widget)
+
+        # Create form section
+        form_widget = self.create_form_section()
+        main_layout.addWidget(form_widget)
+
+        # Create progress section
+        progress_widget = self.create_progress_section()
+        main_layout.addWidget(progress_widget)
+
+        # Create button section
+        button_widget = self.create_button_section()
+        main_layout.addWidget(button_widget)
+
+        # Create status bar
+        self.statusBar().showMessage("Ready")
+
+    def create_header(self):
+        """Create the header section"""
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Title
+        title_label = QLabel("Garrett Discovery Document Prep Tool")
+        title_label.setFont(QFont("Arial", 16, QFont.Weight.Bold))
+        header_layout.addWidget(title_label)
+
+        header_layout.addStretch()
+
+        # Compact theme toggle button with enhanced icons
+        self.theme_button = QPushButton("☀️")  # Start with sun for light mode
+        self.theme_button.setFixedSize(40, 40)
+        self.theme_button.setToolTip("Toggle dark/light theme (Ctrl+D)")
+        self.theme_button.clicked.connect(self.toggle_theme)
+        self.theme_button.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+        # Compact professional styling for theme button
+        self.theme_button.setStyleSheet("""
+            QPushButton {
+                border: 2px solid #e0e0e0;
+                border-radius: 20px;
+                background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+                color: #333333;
+                font-size: 20px;
+                font-weight: bold;
+                padding: 2px;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                transition: all 0.2s ease;
+            }
+            QPushButton:hover {
+                border-color: #0078d4;
+                background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+                box-shadow: 0 3px 6px rgba(0, 120, 212, 0.2);
+                transform: translateY(-1px);
+            }
+            QPushButton:pressed {
+                border-color: #005a9e;
+                background: linear-gradient(135deg, #e6f3ff 0%, #d4e9ff 100%);
+                box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+                transform: translateY(0px);
+            }
+        """)
+
+        header_layout.addWidget(self.theme_button)
+
+        return header_widget
+
+    def create_form_section(self):
+        """Create the form input section"""
+        form_widget = QWidget()
+        form_layout = QGridLayout(form_widget)
+        form_layout.setSpacing(10)
+
+        # Input folder
+        form_layout.addWidget(QLabel("Input Folder:"), 0, 0)
+        self.input_edit = QLineEdit()
+        self.input_edit.setPlaceholderText("Select input folder...")
+        form_layout.addWidget(self.input_edit, 0, 1)
+
+        self.input_browse_btn = QPushButton("Browse")
+        self.input_browse_btn.clicked.connect(self.browse_input_folder)
+        form_layout.addWidget(self.input_browse_btn, 0, 2)
+
+        # Output folder
+        form_layout.addWidget(QLabel("Output Folder:"), 1, 0)
+        self.output_edit = QLineEdit()
+        self.output_edit.setPlaceholderText("Select output folder...")
+        form_layout.addWidget(self.output_edit, 1, 1)
+
+        self.output_browse_btn = QPushButton("Browse")
+        self.output_browse_btn.clicked.connect(self.browse_output_folder)
+        form_layout.addWidget(self.output_browse_btn, 1, 2)
+
         # File naming settings
-        self.file_naming_frame = ttk.LabelFrame(main_frame, text="File Naming", padding="6")
-        self.file_naming_frame.grid(row=3, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=6)
-        self.file_naming_frame.columnconfigure(1, weight=1)
-        
-        ttk.Label(self.file_naming_frame, text="Starting Number:").grid(row=0, column=0, sticky=tk.W, pady=1)
-        self.file_naming_entry = ttk.Entry(self.file_naming_frame, textvariable=self.file_naming_start, width=8)
-        self.file_naming_entry.grid(row=0, column=1, sticky=tk.W, padx=(6, 0), pady=1)
-        self.file_naming_entry.bind('<FocusOut>', lambda e: self._save_settings())
-        
-        # Bates numbering settings - more compact
-        self.bates_frame = ttk.LabelFrame(main_frame, text="Bates Numbering Settings", padding="6")
-        self.bates_frame.grid(row=4, column=0, columnspan=3, sticky=(tk.W, tk.E), pady=6)
-        self.bates_frame.columnconfigure(1, weight=1)
-        
-        ttk.Label(self.bates_frame, text="Prefix (optional):").grid(row=0, column=0, sticky=tk.W, pady=1)
-        self.prefix_entry = ttk.Entry(self.bates_frame, textvariable=self.bates_prefix, width=8)
-        self.prefix_entry.grid(row=0, column=1, sticky=tk.W, padx=(6, 0), pady=1)
-        self.prefix_entry.bind('<FocusOut>', lambda e: self._save_settings())
-        
-        ttk.Label(self.bates_frame, text="Starting Number:").grid(row=1, column=0, sticky=tk.W, pady=1)
-        self.number_entry = ttk.Entry(self.bates_frame, textvariable=self.bates_start_number, width=8)
-        self.number_entry.grid(row=1, column=1, sticky=tk.W, padx=(6, 0), pady=1)
-        self.number_entry.bind('<FocusOut>', lambda e: self._save_settings())
-        
-        # Progress section - more compact
-        self.progress_frame = ttk.LabelFrame(main_frame, text="Processing Progress", padding="6")
-        self.progress_frame.grid(row=5, column=0, columnspan=3, sticky=(tk.W, tk.E, tk.N, tk.S), pady=6)
-        self.progress_frame.columnconfigure(0, weight=1)
-        self.progress_frame.rowconfigure(1, weight=1)
-        
-        # Progress bar - more compact
-        self.progress_bar = ttk.Progressbar(self.progress_frame, mode='indeterminate')
-        self.progress_bar.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 6))
-        
-        # Log display with horizontal scrollbar - more compact
-        self.log_display = scrolledtext.ScrolledText(self.progress_frame, height=12, width=65, wrap=tk.NONE, state='disabled')
-        self.log_display.grid(row=1, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
-        # Add horizontal scrollbar
-        self.h_scrollbar = ttk.Scrollbar(self.progress_frame, orient=tk.HORIZONTAL, command=self.log_display.xview)
-        self.h_scrollbar.grid(row=2, column=0, sticky=(tk.W, tk.E))
-        self.log_display.config(xscrollcommand=self.h_scrollbar.set)
-        
-        # Control buttons - more compact
-        button_frame = ttk.Frame(main_frame)
-        button_frame.grid(row=6, column=0, columnspan=3, pady=6)
-        
-        self.process_button = ttk.Button(button_frame, text="Start Processing", 
-                                       command=self.start_processing)
-        self.process_button.pack(side=tk.LEFT, padx=3)
-        
-        self.pause_button = ttk.Button(button_frame, text="Pause", 
-                                     command=self.pause_processing, state=tk.DISABLED)
-        self.pause_button.pack(side=tk.LEFT, padx=3)
-        
-        ttk.Button(button_frame, text="Clear Log", 
-                  command=self.clear_log).pack(side=tk.LEFT, padx=3)
-        
-        ttk.Button(button_frame, text="Open Folder", 
-                  command=self.open_output_folder).pack(side=tk.LEFT, padx=3)
-        
-        ttk.Button(button_frame, text="Exit", 
-                  command=self.root.quit).pack(side=tk.LEFT, padx=3)
-        
-        # Configure grid weights for main_frame
-        main_frame.rowconfigure(4, weight=1)
-        
-    def _center_window(self):
+        file_naming_group = QGroupBox("File Naming")
+        file_naming_layout = QHBoxLayout(file_naming_group)
+
+        file_naming_layout.addWidget(QLabel("Starting Number:"))
+        self.file_naming_edit = QLineEdit()
+        self.file_naming_edit.setFixedWidth(80)
+        self.file_naming_edit.setText("0001")
+        file_naming_layout.addWidget(self.file_naming_edit)
+        file_naming_layout.addStretch()
+
+        form_layout.addWidget(file_naming_group, 2, 0, 1, 3)
+
+        # Bates numbering settings
+        bates_group = QGroupBox("Bates Numbering Settings")
+        bates_layout = QGridLayout(bates_group)
+
+        bates_layout.addWidget(QLabel("Prefix (optional):"), 0, 0)
+        self.prefix_edit = QLineEdit()
+        self.prefix_edit.setPlaceholderText("e.g., ABC")
+        bates_layout.addWidget(self.prefix_edit, 0, 1)
+
+        bates_layout.addWidget(QLabel("Starting Number:"), 1, 0)
+        self.number_edit = QLineEdit()
+        self.number_edit.setFixedWidth(80)
+        self.number_edit.setText("0001")
+        bates_layout.addWidget(self.number_edit, 1, 1)
+
+        form_layout.addWidget(bates_group, 3, 0, 1, 3)
+
+        # Set column stretch
+        form_layout.setColumnStretch(1, 1)
+
+        return form_widget
+
+    def create_progress_section(self):
+        """Create the progress and logging section"""
+        progress_widget = QWidget()
+        progress_layout = QVBoxLayout(progress_widget)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(10)
+
+        # Progress bar
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        progress_layout.addWidget(self.progress_bar)
+
+        # Log display
+        log_group = QGroupBox("Processing Log")
+        log_layout = QVBoxLayout(log_group)
+        log_layout.setContentsMargins(10, 10, 10, 10)
+
+        self.log_display = QTextEdit()
+        self.log_display.setReadOnly(True)
+        self.log_display.setFont(QFont("Monaco", 9))  # Use Monaco on macOS instead of Consolas
+        log_layout.addWidget(self.log_display)
+
+        progress_layout.addWidget(log_group)
+
+        return progress_widget
+
+    def create_button_section(self):
+        """Create the button control section"""
+        button_widget = QWidget()
+        button_layout = QHBoxLayout(button_widget)
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.setSpacing(10)
+
+        # Process button
+        self.process_button = QPushButton("Start Processing")
+        self.process_button.clicked.connect(self.start_processing)
+        button_layout.addWidget(self.process_button)
+
+        # Pause button
+        self.pause_button = QPushButton("Pause")
+        self.pause_button.setEnabled(False)
+        self.pause_button.clicked.connect(self.pause_processing)
+        button_layout.addWidget(self.pause_button)
+
+        button_layout.addStretch()
+
+        # Clear log button
+        self.clear_log_btn = QPushButton("Clear Log")
+        self.clear_log_btn.clicked.connect(self.clear_log)
+        button_layout.addWidget(self.clear_log_btn)
+
+        # Open folder button
+        self.open_folder_btn = QPushButton("Open Folder")
+        self.open_folder_btn.clicked.connect(self.open_output_folder)
+        button_layout.addWidget(self.open_folder_btn)
+
+        return button_widget
+
+    def center_window(self):
         """Center the window on screen"""
-        # Force window to update and calculate actual size
-        self.root.update_idletasks()
-        
         # Get screen dimensions
-        screen_width = self.root.winfo_screenwidth()
-        screen_height = self.root.winfo_screenheight()
-        
-        # Get window dimensions (use requested size if actual size not available)
-        window_width = self.root.winfo_reqwidth()
-        window_height = self.root.winfo_reqheight()
-        
-        # If requested size is too small, use minimum size
+        screen = self.screen().geometry()
+        screen_width = screen.width()
+        screen_height = screen.height()
+
+        # Get window dimensions
+        window_width = self.width()
+        window_height = self.height()
+
+        # Use minimum size if actual size is too small
         if window_width < 800:
             window_width = 800
         if window_height < 600:
             window_height = 600
-            
+
         # Calculate center position
         x = max(0, (screen_width - window_width) // 2)
         y = max(0, (screen_height - window_height) // 2)
-        
-        # Ensure window doesn't go off screen
-        if x + window_width > screen_width:
-            x = screen_width - window_width
-        if y + window_height > screen_height:
-            y = screen_height - window_height
-            
+
         # Set position
-        self.root.geometry(f"{window_width}x{window_height}+{x}+{y}")
+        self.move(x, y)
         
-    def _set_window_icon(self):
-        """Set the window icon for both the window and taskbar"""
+    def set_app_icon(self):
+        """Set the application icon"""
         try:
             # Windows-specific taskbar icon fix
             if sys.platform == "win32":
                 import ctypes
                 # Set the application ID to ensure taskbar icon works
                 ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID("GDIDocumentPrep.1.0")
-            
-            # Set the taskbar and window icon using ICO file
+
+            # Set the window icon
             icon_path = Path(__file__).parent.parent / "assets" / "app_icon.ico"
-            
+
             if icon_path.exists():
-                # Set window icon using iconbitmap (most reliable for taskbar)
-                self.root.iconbitmap(str(icon_path))
-                
-                # Also set using iconphoto for additional compatibility
-                try:
-                    # Load PNG version for iconphoto
-                    png_path = Path(__file__).parent.parent / "assets" / "app_icon.png"
-                    if png_path.exists():
-                        icon_image = tk.PhotoImage(file=str(png_path))
-                        self.root.iconphoto(True, icon_image)
-                        # Keep a reference to prevent garbage collection
-                        self.icon_image = icon_image
-                except:
-                    pass
-                    
+                self.setWindowIcon(QIcon(str(icon_path)))
             else:
                 # Fallback - PNG only
                 png_path = Path(__file__).parent.parent / "assets" / "app_icon.png"
                 if png_path.exists():
-                    icon_image = tk.PhotoImage(file=str(png_path))
-                    self.root.iconphoto(True, icon_image)
-                    self.icon_image = icon_image
-                    
+                    self.setWindowIcon(QIcon(str(png_path)))
+
         except Exception as e:
             # Continue without icon - not critical for functionality
             print(f"Note: Could not set application icon: {e}")
-            pass
         
+        # Initialize components
+        self.file_scanner = FileScanner(log_callback=self.log_message)
+        self.pdf_converter = PDFConverter(log_callback=self.log_message)
+        self.bates_numberer = BatesNumberer(log_callback=self.log_message)
+        self.logger_manager = LoggerManager(log_callback=self.log_message)
+        self.error_handler = ErrorHandler(log_callback=self.log_message)
+
     def browse_input_folder(self):
         """Open input folder selection dialogue"""
-        folder = filedialog.askdirectory(title="Select Input Folder")
+        folder = QFileDialog.getExistingDirectory(self, "Select Input Folder")
         if folder:
-            self.input_folder.set(folder)
-            
-            # Auto-create output folder path as input_folder + '_Processed'
-            input_path = Path(folder)
-            auto_output_path = input_path.parent / f"{input_path.name}_Processed"
-            
-            # Always update output folder to match the new input folder
-            # Convert to forward slashes for consistency with input folder display
-            self.output_folder.set(str(auto_output_path).replace('\\', '/'))
-            
+            try:
+                # Sanitize the input path
+                sanitized_path = Path(folder).resolve()
+
+                # Validate folder accessibility
+                if not sanitized_path.exists() or not sanitized_path.is_dir():
+                    QMessageBox.critical(self, "Error", "Selected folder is not accessible or doesn't exist.")
+                    return
+
+                self.input_edit.setText(str(sanitized_path))
+
+                # Auto-create output folder path as input_folder + '_Processed'
+                auto_output_path = sanitized_path.parent / f"{sanitized_path.name}_Processed"
+                self.output_edit.setText(str(auto_output_path))
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error selecting folder: {str(e)}")
+
     def browse_output_folder(self):
         """Open output folder selection dialogue"""
-        folder = filedialog.askdirectory(title="Select Output Folder")
+        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
         if folder:
-            self.output_folder.set(folder)
-            
-    def log_message(self, message):
-        """Add message to log display"""
-        timestamp = datetime.now().strftime("%H:%M:%S")
-        formatted_message = f"[{timestamp}] {message}\n"
-        
-        # Update GUI in main thread
-        self.root.after(0, lambda: self._update_log_display(formatted_message))
-        
-    def _update_log_display(self, message):
-        """Update log display (must be called from main thread)"""
-        # Temporarily enable editing to insert message
-        self.log_display.config(state='normal')
-        self.log_display.insert(tk.END, message)
-        self.log_display.see(tk.END)
-        # Disable editing again
-        self.log_display.config(state='disabled')
-        
+            try:
+                # Sanitize the input path
+                sanitized_path = Path(folder).resolve()
+
+                # Validate folder accessibility (write required for output)
+                if not sanitized_path.exists() or not sanitized_path.is_dir():
+                    QMessageBox.critical(self, "Error", "Selected output folder is not accessible or doesn't exist.")
+                    return
+
+                self.output_edit.setText(str(sanitized_path))
+
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Error selecting folder: {str(e)}")
+
+    def start_processing(self):
+        """Start the document preparation"""
+        # Get values from UI controls
+        input_folder = self.input_edit.text()
+        output_folder = self.output_edit.text()
+        file_naming_start = self.file_naming_edit.text()
+        bates_prefix = self.prefix_edit.text()
+        bates_start_number = self.number_edit.text()
+
+        if not input_folder:
+            QMessageBox.critical(self, "Error", "Please select an input folder.")
+            return
+
+        if not output_folder:
+            QMessageBox.critical(self, "Error", "Please select an output folder.")
+            return
+
+        if not os.path.exists(input_folder):
+            QMessageBox.critical(self, "Error", "Input folder does not exist.")
+            return
+
+        # Create output folder if it doesn't exist
+        try:
+            os.makedirs(output_folder, exist_ok=True)
+        except Exception as e:
+            QMessageBox.critical(self, "Error", f"Cannot create output folder: {str(e)}")
+            return
+
+        # Validate file naming starting number
+        try:
+            file_start = int(file_naming_start)
+        except ValueError:
+            QMessageBox.critical(self, "Error", "File naming starting number must be a valid number.")
+            return
+
+        try:
+            int(bates_start_number)
+        except ValueError:
+            QMessageBox.critical(self, "Error", "Starting number must be a valid integer.")
+            return
+
+        # Store values
+        self.input_folder = input_folder
+        self.output_folder = output_folder
+        self.file_naming_start = file_naming_start
+        self.bates_prefix = bates_prefix
+        self.bates_start_number = bates_start_number
+
+        # Initialize processor with current settings
+        self.processor = GDIDocumentProcessor(
+            source_folder=self.input_folder,
+            bates_prefix=self.bates_prefix,
+            bates_start_number=int(self.bates_start_number),
+            file_naming_start=int(self.file_naming_start),
+            output_folder=self.output_folder,
+            log_callback=self.log_message,
+            bates_numberer=self.bates_numberer
+        )
+
+        # Setup processing worker and thread
+        self.processing_worker = ProcessingWorker(self.processor)
+        self.processing_thread = QThread()
+        self.processing_worker.moveToThread(self.processing_thread)
+
+        # Connect signals
+        self.processing_thread.started.connect(self.processing_worker.run_processing)
+        self.processing_worker.progress_update.connect(self.update_progress)
+        self.processing_worker.log_message.connect(self.log_message)
+        self.processing_worker.processing_complete.connect(self.processing_finished)
+        self.processing_worker.error_occurred.connect(self.processing_error)
+
+        # Update UI state
+        self.is_processing = True
+        self.process_button.setEnabled(False)
+        self.pause_button.setEnabled(True)
+        self.progress_bar.setRange(0, 0)  # Indeterminate progress
+
+        # Start processing
+        self.processing_thread.start()
+
+    def update_progress(self, progress: int, message: str):
+        """Update progress bar and status"""
+        self.progress_bar.setValue(progress)
+        self.statusBar().showMessage(message)
+
+    def processing_finished(self, success: bool, message: str):
+        """Handle processing completion"""
+        self.is_processing = False
+        self.process_button.setEnabled(True)
+        self.pause_button.setEnabled(False)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+
+        if success:
+            QMessageBox.information(self, "Success", message)
+        else:
+            QMessageBox.warning(self, "Processing Complete", message)
+
+    def processing_error(self, error_message: str):
+        """Handle processing errors"""
+        self.is_processing = False
+        self.process_button.setEnabled(True)
+        self.pause_button.setEnabled(False)
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        QMessageBox.critical(self, "Error", error_message)
+
+    def pause_processing(self):
+        """Pause/Resume the document preparation"""
+        if self.is_processing:
+            # Stop processing
+            if self.processing_worker:
+                self.processing_worker.stop_processing()
+            self.is_processing = False
+            self.pause_button.setText("Resume")
+            self.log_message("Processing paused")
+        else:
+            # Resume processing (would need to implement resume logic)
+            self.log_message("Resume functionality not yet implemented")
+
     def clear_log(self):
         """Clear the log display"""
-        # Temporarily enable editing to clear content
-        self.log_display.config(state='normal')
-        self.log_display.delete(1.0, tk.END)
-        # Disable editing again
-        self.log_display.config(state='disabled')
-        
+        self.log_display.clear()
+
     def open_output_folder(self):
-        """Open the output folder in Windows Explorer"""
-        if not self.output_folder.get():
-            messagebox.showwarning("Warning", "No output folder selected.")
+        """Open the output folder in system file manager"""
+        output_folder = self.output_edit.text()
+        if not output_folder:
+            QMessageBox.warning(self, "Warning", "No output folder selected.")
             return
-            
-        output_path = Path(self.output_folder.get())
+
+        output_path = Path(output_folder)
         if not output_path.exists():
-            messagebox.showwarning("Warning", f"Output folder does not exist: {output_path}")
+            QMessageBox.warning(self, "Warning", f"Output folder does not exist: {output_path}")
             return
-            
+
         try:
-            # Use Windows-specific command to open folder
             if sys.platform == "win32":
                 os.startfile(str(output_path))
             else:
-                # For other platforms, try to open with default file manager
                 import subprocess
                 subprocess.run(['xdg-open', str(output_path)])
-                
+
             self.log_message(f"Opened output folder: {output_path}")
-            
+
         except Exception as e:
-            messagebox.showerror("Error", f"Could not open output folder: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Could not open output folder: {str(e)}")
             self.log_message(f"Error opening output folder: {str(e)}")
-        
-    def start_processing(self):
-        """Start the document preparation"""
-        if not self.input_folder.get():
-            messagebox.showerror("Error", "Please select an input folder.")
-            return
-            
-        if not self.output_folder.get():
-            messagebox.showerror("Error", "Please select an output folder.")
-            return
-            
-        if not os.path.exists(self.input_folder.get()):
-            messagebox.showerror("Error", "Input folder does not exist.")
-            return
-            
-        # Create output folder if it doesn't exist
-        try:
-            os.makedirs(self.output_folder.get(), exist_ok=True)
-        except Exception as e:
-            messagebox.showerror("Error", f"Cannot create output folder: {str(e)}")
-            return
-            
-        # Validate file naming starting number
-        try:
-            file_start = int(self.file_naming_start.get())
-        except ValueError:
-            messagebox.showerror("Error", "File naming starting number must be a valid number.")
-            return
-            
-        try:
-            int(self.bates_start_number.get())
-        except ValueError:
-            messagebox.showerror("Error", "Starting number must be a valid integer.")
-            return
-            
-        # Apply current settings before processing
-        self._apply_loaded_settings()
-        
-        # Start processing in background thread
-        self.processing = True
-        self.process_button.config(state=tk.DISABLED)
-        self.pause_button.config(state=tk.NORMAL)
-        self.progress_bar.start()
-        
-        # Create and start processing thread
-        self.processing_thread = threading.Thread(target=self._process_documents)
-        self.processing_thread.daemon = True
-        self.processing_thread.start()
-        
-    def pause_processing(self):
-        """Pause the document preparation"""
-        self.processing = False
-        # Tell the processor to stop as well
-        if self.processor:
-            self.processor.stop_processing()
-        self.log_message("Pausing processing...")
-        
-    def _process_documents(self):
-        """Main document preparation logic (runs in background thread)"""
-        try:
-            source_folder = self.input_folder.get()
-            output_folder = self.output_folder.get()
-            file_naming_start = int(self.file_naming_start.get())
-            bates_prefix = self.bates_prefix.get().strip()
-            bates_start = int(self.bates_start_number.get())
-            
-            self.log_message("Starting document preparation...")
-            self.log_message(f"Input folder: {source_folder}")
-            self.log_message(f"Output folder: {output_folder}")
-            self.log_message(f"File naming starts: {file_naming_start:04d}")
-            self.log_message(f"Bates prefix: {bates_prefix if bates_prefix else '(none)'}")
-            self.log_message(f"Bates starting number: {bates_start:04d}")
-            
-            # Initialize document preparation processor with configured components
-            self.processor = GDIDocumentProcessor(
-                source_folder=source_folder,
-                bates_prefix=bates_prefix,
-                bates_start_number=bates_start,
-                file_naming_start=file_naming_start,
-                output_folder=output_folder,
-                log_callback=self.log_message,
-                                bates_numberer=self.bates_numberer
-            )
-            
-            # Run the processing
-            success = self.processor.process_all_documents()
-            
-            if success and self.processing:
-                self.log_message("Document preparation completed successfully!")
-                messagebox.showinfo("Success", "Document preparation completed successfully!")
-            elif not self.processing:
-                self.log_message("Processing was paused by user.")
-            else:
-                self.log_message("Processing completed with errors. Check log for details.")
-                messagebox.showwarning("Warning", "Processing completed with errors. Check log for details.")
-                
-        except Exception as e:
-            error_msg = f"An error occurred during processing: {str(e)}"
-            self.log_message(error_msg)
-            messagebox.showerror("Error", error_msg)
-            
-        finally:
-            # Reset UI state
-            self.root.after(0, self._reset_ui_state)
-            
-    def _reset_ui_state(self):
-        """Reset UI state after processing (must be called from main thread)"""
-        self.processing = False
-        self.processor = None  # Clear processor reference
-        self.process_button.config(state=tk.NORMAL)
-        self.pause_button.config(state=tk.DISABLED)
-        self.progress_bar.stop()
-        
+
+    def log_message(self, message: str):
+        """Add message to log display"""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        formatted_message = f"[{timestamp}] {message}\n"
+        self.log_display.append(formatted_message)
+
+    def toggle_theme(self):
+        """Toggle between light and dark themes with professional icons and smooth transitions"""
+        self.dark_mode = not self.dark_mode
+        self.apply_theme()
+
+        # Professional theme icons with better visibility and meaning
+        if self.dark_mode:
+            # Elegant crescent moon for dark mode (when switching to dark)
+            self.theme_button.setText("🌙")
+        else:
+            # Bright sun for light mode (when switching to light)
+            self.theme_button.setText("☀️")
+
+        # Compact theme-aware styling with enhanced visual feedback
+        if self.dark_mode:
+            button_style = """
+                QPushButton {
+                    border: 2px solid rgba(255, 255, 255, 0.3);
+                    border-radius: 20px;
+                    background: linear-gradient(135deg, #2d3748 0%, #1a202c 100%);
+                    color: #ffffff;
+                    font-size: 20px;
+                    font-weight: bold;
+                    padding: 2px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+                    transition: all 0.2s ease;
+                }
+                QPushButton:hover {
+                    border-color: rgba(255, 255, 255, 0.5);
+                    background: linear-gradient(135deg, #374151 0%, #1f2937 100%);
+                    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.4);
+                    transform: translateY(-1px);
+                }
+                QPushButton:pressed {
+                    border-color: rgba(255, 255, 255, 0.7);
+                    background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+                    transform: translateY(0px);
+                }
+            """
+        else:
+            button_style = """
+                QPushButton {
+                    border: 2px solid #e0e0e0;
+                    border-radius: 20px;
+                    background: linear-gradient(135deg, #ffffff 0%, #f8f9fa 100%);
+                    color: #333333;
+                    font-size: 20px;
+                    font-weight: bold;
+                    padding: 2px;
+                    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+                    transition: all 0.2s ease;
+                }
+                QPushButton:hover {
+                    border-color: #0078d4;
+                    background: linear-gradient(135deg, #f0f8ff 0%, #e6f3ff 100%);
+                    box-shadow: 0 3px 6px rgba(0, 120, 212, 0.2);
+                    transform: translateY(-1px);
+                }
+                QPushButton:pressed {
+                    border-color: #005a9e;
+                    background: linear-gradient(135deg, #e6f3ff 0%, #d4e9ff 100%);
+                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+                    transform: translateY(0px);
+                }
+            """
+
+        self.theme_button.setStyleSheet(button_style)
+
+        # Log the theme change
+        theme_name = "Dark Mode" if self.dark_mode else "Light Mode"
+        self.log_message(f"Switched to {theme_name}")
+
+    def apply_theme(self):
+        """Apply the current theme"""
+        if self.dark_mode:
+            # Dark theme
+            self.setStyleSheet("""
+                QMainWindow {
+                    background-color: #2b2b2b;
+                    color: #ffffff;
+                }
+                QWidget {
+                    background-color: #2b2b2b;
+                    color: #ffffff;
+                }
+                QLineEdit {
+                    background-color: #404040;
+                    border: 1px solid #555555;
+                    color: #ffffff;
+                    padding: 5px;
+                }
+                QPushButton {
+                    background-color: #0078d4;
+                    border: none;
+                    color: white;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #106ebe;
+                }
+                QPushButton:pressed {
+                    background-color: #005a9e;
+                }
+                QPushButton:disabled {
+                    background-color: #555555;
+                    color: #888888;
+                }
+                QGroupBox {
+                    border: 1px solid #555555;
+                    border-radius: 6px;
+                    margin-top: 10px;
+                    padding-top: 10px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 5px 0 5px;
+                }
+                QTextEdit {
+                    background-color: #1e1e1e;
+                    border: 1px solid #555555;
+                    color: #d4d4d4;
+                    font-family: Monaco, monospace;
+                }
+                QProgressBar {
+                    border: 1px solid #555555;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #404040;
+                }
+                QProgressBar::chunk {
+                    background-color: #0078d4;
+                }
+            """)
+        else:
+            # Light theme
+            self.setStyleSheet("""
+                QMainWindow {
+                    background-color: #f0f0f0;
+                    color: #000000;
+                }
+                QWidget {
+                    background-color: #f0f0f0;
+                    color: #000000;
+                }
+                QLineEdit {
+                    background-color: #ffffff;
+                    border: 1px solid #cccccc;
+                    color: #000000;
+                    padding: 5px;
+                }
+                QPushButton {
+                    background-color: #e1e1e1;
+                    border: 1px solid #cccccc;
+                    color: #000000;
+                    padding: 8px 16px;
+                    border-radius: 4px;
+                }
+                QPushButton:hover {
+                    background-color: #d0d0d0;
+                }
+                QPushButton:pressed {
+                    background-color: #c0c0c0;
+                }
+                QPushButton:disabled {
+                    background-color: #f5f5f5;
+                    color: #888888;
+                }
+                QGroupBox {
+                    border: 1px solid #cccccc;
+                    border-radius: 6px;
+                    margin-top: 10px;
+                    padding-top: 10px;
+                }
+                QGroupBox::title {
+                    subcontrol-origin: margin;
+                    left: 10px;
+                    padding: 0 5px 0 5px;
+                }
+                QTextEdit {
+                    background-color: #ffffff;
+                    border: 1px solid #cccccc;
+                    color: #000000;
+                    font-family: Monaco, monospace;
+                }
+                QProgressBar {
+                    border: 1px solid #cccccc;
+                    border-radius: 4px;
+                    text-align: center;
+                    background-color: #f0f0f0;
+                }
+                QProgressBar::chunk {
+                    background-color: #0078d4;
+                }
+            """)
+
+    def _show_startup_info(self):
+        """Show startup information about available features"""
+        self.log_message("Application started successfully")
+        self.log_message("Available features:")
+
+        features = self.dependency_checker.get_available_features()
+        for feature, available in features.items():
+            status = "✅" if available else "❌"
+            feature_name = feature.replace("_", " ").title()
+            self.log_message(f"   {status} {feature_name}")
+
+        # Show any warnings about missing optional dependencies
+        missing_optional = []
+        for dep_name, dep_info in self.dependency_checker.dependencies.items():
+            if not dep_info.required and self.dependency_checker._dependency_status.get(dep_name) == "missing":
+                missing_optional.append(dep_info.name)
+
+        if missing_optional:
+            self.log_message("⚠️  Optional dependencies not available:")
+            for dep in missing_optional:
+                dep_info = self.dependency_checker.dependencies[dep_name]
+                self.log_message(f"   • {dep}: {dep_info.impact_if_missing}")
+
+        self.log_message("Ready to process documents")
+
+    def closeEvent(self, event):
+        """Handle window closing event"""
+        # Stop any running processing
+        if self.is_processing and self.processing_worker:
+            self.processing_worker.stop_processing()
+
+        # Clean up thread
+        if self.processing_thread and self.processing_thread.isRunning():
+            self.processing_thread.quit()
+            self.processing_thread.wait()
+
+        event.accept()
+
     def _load_settings(self):
         """Load saved settings from config file"""
         try:
             if self.config_file.exists():
                 with open(self.config_file, 'r') as f:
                     config = json.load(f)
-                    
+
                 # Load file naming settings
                 if 'file_naming_start' in config:
-                    self.file_naming_start.set(config['file_naming_start'])
-                    
+                    self.file_naming_edit.setText(config['file_naming_start'])
+
                 # Load bates settings
                 if 'bates_prefix' in config:
-                    self.bates_prefix.set(config['bates_prefix'])
-                    
+                    self.prefix_edit.setText(config['bates_prefix'])
+
                 if 'bates_start_number' in config:
-                    self.bates_start_number.set(config['bates_start_number'])
-                    
-                # Color settings are now hardcoded - no need to load them
-                    
+                    self.number_edit.setText(config['bates_start_number'])
+
                 # Load dark mode setting
                 if 'dark_mode' in config:
-                    self.dark_mode.set(config['dark_mode'])
-                    
+                    self.dark_mode = config['dark_mode']
+                    # Set appropriate icon based on loaded theme
+                    self.theme_button.setText("🌞" if self.dark_mode else "🌙")
+
         except Exception as e:
             # If config file is corrupted or can't be read, just use defaults
             print(f"Note: Could not load settings: {e}")
-            pass
-            
+
     def _save_settings(self):
         """Save current settings to config file"""
         try:
             config = {
-                'file_naming_start': self.file_naming_start.get(),
-                'bates_prefix': self.bates_prefix.get(),
-                'bates_start_number': self.bates_start_number.get(),
-                'dark_mode': self.dark_mode.get()
+                'file_naming_start': self.file_naming_edit.text(),
+                'bates_prefix': self.prefix_edit.text(),
+                'bates_start_number': self.number_edit.text(),
+                'dark_mode': self.dark_mode
             }
-            
+
             # Create directory if it doesn't exist
             self.config_file.parent.mkdir(parents=True, exist_ok=True)
-            
+
             with open(self.config_file, 'w') as f:
                 json.dump(config, f, indent=2)
-                
+
         except Exception as e:
             # Don't show error to user - settings saving is not critical
             print(f"Note: Could not save settings: {e}")
-            pass
-            
-    def _apply_loaded_settings(self):
-        """Apply settings to components after loading"""
-        try:
-            # Colors are now hardcoded in the modules
-            # Line numbers: Nice red color (0.8, 0.0, 0.0), Times New Roman font
-            # Bates numbers: Black color (0, 0, 0), Times New Roman font
-            
-            # Update dark mode button image if images are loaded (dark mode will be applied after UI creation)
-            if hasattr(self, 'dark_mode_button') and hasattr(self, 'night_mode_off_image') and hasattr(self, 'night_mode_on_image'):
-                if self.dark_mode.get():
-                    self.dark_mode_button.configure(image=self.night_mode_on_image)
-                    self.dark_mode_button.image = self.night_mode_on_image
-                else:
-                    self.dark_mode_button.configure(image=self.night_mode_off_image)
-                    self.dark_mode_button.image = self.night_mode_off_image
-            
-        except Exception as e:
-            # If settings are invalid, use defaults
-            print(f"Note: Could not apply settings, using defaults: {e}")
-            import traceback
-            traceback.print_exc()
-            pass
-            
-    # Settings menu removed - colors are hardcoded in base pipeline
-            
-    def toggle_dark_mode(self):
-        """Toggle dark mode on/off"""
-        try:
-            # Toggle the dark mode state
-            self.dark_mode.set(not self.dark_mode.get())
-            
-            # Update the button image based on the new state
-            if hasattr(self, 'night_mode_off_image') and hasattr(self, 'night_mode_on_image'):
-                if self.dark_mode.get():
-                    # Dark mode is ON - use the "on" image
-                    self.dark_mode_button.configure(image=self.night_mode_on_image)
-                    self.dark_mode_button.image = self.night_mode_on_image
-                else:
-                    # Dark mode is OFF - use the "off" image
-                    self.dark_mode_button.configure(image=self.night_mode_off_image)
-                    self.dark_mode_button.image = self.night_mode_off_image
-            
-            # Apply dark mode styling
-            self.apply_dark_mode()
-            
-            # Save the dark mode preference
-            self._save_settings()
-            
-        except Exception as e:
-            self.log_message(f"Error toggling dark mode: {e}")
-            
-    def apply_dark_mode(self):
-        """Apply dark mode styling to the interface"""
-        try:
-            if self.dark_mode.get():
-                # Cursor-like dark mode colors
-                self.root.configure(bg="#1e1e1e")  # Main background - very dark grey
-                
-                # Configure ttk style for dark mode
-                style = ttk.Style()
-                style.theme_use('clam')  # Use clam theme as base
-                
-                # Dark theme colors
-                style.configure('TLabel', 
-                               background="#1e1e1e", 
-                               foreground="#d4d4d4")  # Light grey text
-                
-                style.configure('TEntry', 
-                               fieldbackground="#3c3c3c", 
-                               background="#3c3c3c",
-                               foreground="#d4d4d4",
-                               bordercolor="#5a5a5a",
-                               lightcolor="#5a5a5a",
-                               darkcolor="#5a5a5a")
-                
-                style.configure('TButton', 
-                               background="#0e639c", 
-                               foreground="#ffffff",
-                               bordercolor="#0e639c",
-                               lightcolor="#0e639c",
-                               darkcolor="#0e639c")
-                
-                style.map('TButton',
-                         background=[('active', '#1177bb')])
-                
-                style.configure('TFrame', 
-                               background="#1e1e1e")
-                
-                style.configure('TLabelFrame', 
-                               background="#1e1e1e", 
-                               foreground="#d4d4d4",
-                               bordercolor="#3c3c3c",
-                               lightcolor="#1e1e1e",
-                               darkcolor="#1e1e1e")
-                
-                style.configure('TLabelFrame.Label', 
-                               background="#1e1e1e", 
-                               foreground="#d4d4d4")
-                
-                # Force all existing frames to update their background
-                self._update_frame_backgrounds("#1e1e1e")
-                
-                # Force update specific LabelFrames that might not be updating
-                self._force_labelframe_update()
-                
-                # Directly configure specific widgets that aren't updating
-                self._configure_specific_widgets_dark()
-                
-                # Configure the log text widget
-                if hasattr(self, 'log_display'):
-                    self.log_display.configure(
-                        bg="#1e1e1e",
-                        fg="#d4d4d4",
-                        insertbackground="#d4d4d4",
-                        selectbackground="#264f78",
-                        selectforeground="#ffffff",
-                        highlightthickness=0,
-                        relief="flat"
-                    )
-                    
-                    # Also configure the scrollbar that comes with ScrolledText
-                    try:
-                        # Get the scrollbar from ScrolledText and configure it
-                        scrollbar = self.log_display.vbar
-                        if scrollbar:
-                            scrollbar.configure(
-                                bg="#3c3c3c",
-                                troughcolor="#1e1e1e",
-                                activebackground="#5a5a5a",
-                                highlightthickness=0
-                            )
-                    except:
-                        pass
-                
-                # Configure progress bar
-                style.configure('TProgressbar',
-                               background="#0e639c",
-                               troughcolor="#3c3c3c",
-                               bordercolor="#3c3c3c",
-                               lightcolor="#0e639c",
-                               darkcolor="#0e639c")
-                
-                # Configure scrollbars
-                style.configure('TScrollbar',
-                               background="#3c3c3c",
-                               troughcolor="#1e1e1e",
-                               bordercolor="#3c3c3c",
-                               arrowcolor="#d4d4d4",
-                               lightcolor="#3c3c3c",
-                               darkcolor="#3c3c3c")
-                style.map('TScrollbar',
-                         background=[('active', '#5a5a5a')],
-                         troughcolor=[('active', '#1e1e1e')])
-                
-            else:
-                # Light mode colors (default)
-                self.root.configure(bg="#f0f0f0")
-                
-                # Reset to default theme
-                style = ttk.Style()
-                style.theme_use('clam')
-                
-                # Light theme colors
-                style.configure('TLabel', 
-                               background="#f0f0f0", 
-                               foreground="#000000")
-                
-                style.configure('TEntry', 
-                               fieldbackground="#ffffff", 
-                               background="#ffffff",
-                               foreground="#000000")
-                
-                style.configure('TButton', 
-                               background="#e1e1e1", 
-                               foreground="#000000")
-                
-                style.configure('TFrame', 
-                               background="#f0f0f0")
-                
-                style.configure('TLabelFrame', 
-                               background="#f0f0f0", 
-                               foreground="#000000",
-                               bordercolor="#d0d0d0",
-                               lightcolor="#f0f0f0",
-                               darkcolor="#f0f0f0")
-                
-                style.configure('TLabelFrame.Label', 
-                               background="#f0f0f0", 
-                               foreground="#000000")
-                
-                # Force all existing frames to update their background
-                self._update_frame_backgrounds("#f0f0f0")
-                
-                # Force update specific LabelFrames that might not be updating
-                self._force_labelframe_update()
-                
-                # Directly configure specific widgets that aren't updating
-                self._configure_specific_widgets_light()
-                
-                # Configure the log text widget
-                if hasattr(self, 'log_display'):
-                    self.log_display.configure(
-                        bg="#ffffff",
-                        fg="#000000",
-                        insertbackground="#000000",
-                        selectbackground="#0078d4",
-                        selectforeground="#ffffff",
-                        highlightthickness=0,
-                        relief="flat"
-                    )
-                
-                # Configure progress bar
-                style.configure('TProgressbar',
-                               background="#0078d4",
-                               troughcolor="#e1e1e1")
-                
-                # Configure scrollbars
-                style.configure('TScrollbar',
-                               background="#e1e1e1",
-                               troughcolor="#f0f0f0",
-                               bordercolor="#d0d0d0",
-                               arrowcolor="#000000",
-                               lightcolor="#e1e1e1",
-                               darkcolor="#e1e1e1")
-                style.map('TScrollbar',
-                         background=[('active', '#d0d0d0')])
-            
-            # Force refresh of all existing widgets
-            self.root.update_idletasks()
-            
-            mode_text = "Dark Mode ON" if self.dark_mode.get() else "Dark Mode OFF"
-            self.log_message(f"Interface: {mode_text}")
-            
-        except Exception as e:
-            self.log_message(f"Error applying dark mode: {e}")
-
-    def _update_frame_backgrounds(self, color):
-        """Force update all frame backgrounds to the specified color"""
-        try:
-            # Update main window
-            self.root.configure(bg=color)
-            
-            # Recursively update all child widgets
-            def update_widget_bg(widget):
-                try:
-                    if hasattr(widget, 'configure'):
-                        widget.configure(bg=color)
-                except:
-                    pass
-                for child in widget.winfo_children():
-                    update_widget_bg(child)
-            
-            update_widget_bg(self.root)
-        except Exception as e:
-            print(f"Error updating frame backgrounds: {e}")
-
-    def _force_labelframe_update(self):
-        """Force update LabelFrame backgrounds specifically"""
-        try:
-            # Find all LabelFrames and force their background update
-            def find_labelframes(widget):
-                labelframes = []
-                if isinstance(widget, ttk.LabelFrame):
-                    labelframes.append(widget)
-                for child in widget.winfo_children():
-                    labelframes.extend(find_labelframes(child))
-                return labelframes
-            
-            labelframes = find_labelframes(self.root)
-            for lf in labelframes:
-                try:
-                    # Just refresh the widget without changing style
-                    lf.update_idletasks()
-                except:
-                    pass
-        except Exception as e:
-            print(f"Error forcing LabelFrame update: {e}")
-
-    def _configure_specific_widgets_dark(self):
-        """Directly configure specific widgets that aren't updating with ttk styles"""
-        try:
-            # Configure entry widgets directly
-            if hasattr(self, 'input_entry'):
-                self.input_entry.configure(style='TEntry')
-            if hasattr(self, 'output_entry'):
-                self.output_entry.configure(style='TEntry')
-            if hasattr(self, 'prefix_entry'):
-                self.prefix_entry.configure(style='TEntry')
-            if hasattr(self, 'number_entry'):
-                self.number_entry.configure(style='TEntry')
-            
-            # Configure LabelFrames directly (remove style to avoid layout errors)
-            if hasattr(self, 'file_naming_frame'):
-                pass  # Let it use default styling
-            if hasattr(self, 'bates_frame'):
-                pass  # Let it use default styling
-            if hasattr(self, 'progress_frame'):
-                pass  # Let it use default styling
-            
-            # Configure scrollbars directly
-            if hasattr(self, 'h_scrollbar'):
-                self.h_scrollbar.configure(style='TScrollbar')
-                
-        except Exception as e:
-            print(f"Error configuring specific widgets: {e}")
-
-    def _configure_specific_widgets_light(self):
-        """Directly configure specific widgets for light mode"""
-        try:
-            # Configure entry widgets directly
-            if hasattr(self, 'input_entry'):
-                self.input_entry.configure(style='TEntry')
-            if hasattr(self, 'output_entry'):
-                self.output_entry.configure(style='TEntry')
-            if hasattr(self, 'prefix_entry'):
-                self.prefix_entry.configure(style='TEntry')
-            if hasattr(self, 'number_entry'):
-                self.number_entry.configure(style='TEntry')
-            
-            # Configure LabelFrames directly (remove style to avoid layout errors)
-            if hasattr(self, 'file_naming_frame'):
-                pass  # Let it use default styling
-            if hasattr(self, 'bates_frame'):
-                pass  # Let it use default styling
-            if hasattr(self, 'progress_frame'):
-                pass  # Let it use default styling
-            
-            # Configure scrollbars directly
-            if hasattr(self, 'h_scrollbar'):
-                self.h_scrollbar.configure(style='TScrollbar')
-                
-        except Exception as e:
-            print(f"Error configuring specific widgets for light mode: {e}")
-
-    def _on_closing(self):
-        """Handle window closing event"""
-        # Save settings before closing
-        self._save_settings()
-        
-        # Stop any running processing
-        if self.processing:
-            self.pause_processing()
-            
-        # Destroy the window
-        self.root.destroy()
 
 
 def main():
     """Main application entry point"""
-    root = tk.Tk()
-    app = GDIDocumentPrepGUI(root)
-    root.mainloop()
+    app = QApplication(sys.argv)
+    app.setStyle('Fusion')  # Modern look
+
+    # Set application info
+    app.setApplicationName("Garrett Discovery Document Prep Tool")
+    app.setApplicationVersion("1.0")
+
+    # Create and show main window
+    window = GDIDocumentPrepGUI()
+    window.show()
+
+    # Run the application
+    sys.exit(app.exec())
 
 
 if __name__ == "__main__":

@@ -10,41 +10,44 @@ from pathlib import Path
 import tempfile
 from datetime import datetime
 import csv
+from typing import Optional, Callable, Dict, Any, List, Union
 
 try:
     import fitz  # PyMuPDF
 except ImportError:
     fitz = None
 
-from file_scanner import FileScanner
-from pdf_converter import PDFConverter
-from bates_numbering import BatesNumberer
-from logger_manager import LoggerManager
-from pipelines.text_pipeline import TextPipeline
-from pipelines.native_pdf_pipeline import NativePDFPipeline
-from pipelines.scan_image_pipeline import ScanImagePipeline
-from error_handling import ErrorHandler, ValidationError, ProcessingError
-from memory_manager import MemoryManager, MemoryConfig
-from vector_line_numbering import VectorLineNumberer
+from .file_scanner import FileScanner
+from .pdf_converter import PDFConverter
+from .bates_numbering import BatesNumberer
+from .logger_manager import LoggerManager
+from .pipelines.text_pipeline import TextPipeline
+from .pipelines.native_pdf_pipeline import NativePDFPipeline
+from .pipelines.scan_image_pipeline import ScanImagePipeline
+from .error_handling import ErrorHandler, ValidationError, ProcessingError
+from .memory_manager import MemoryManager, MemoryConfig
+from .vector_line_numbering import VectorLineNumberer
 
 
 class GDIDocumentProcessor:
     """Main document preparation processor that coordinates all operations"""
     
-    def __init__(self, source_folder, bates_prefix, bates_start_number=1, file_naming_start=1, output_folder=None,
-                 log_callback=None, bates_numberer=None, file_limit=None):
+    def __init__(self, source_folder: Union[str, Path], bates_prefix: str, bates_start_number: int = 1,
+                 file_naming_start: int = 1, output_folder: Optional[Union[str, Path]] = None,
+                 log_callback: Optional[Callable[[str], None]] = None,
+                 bates_numberer: Optional[BatesNumberer] = None, file_limit: Optional[int] = None) -> None:
         """
         Initialize the document preparation processor
-        
+
         Args:
-            source_folder (str): Source folder to process
-            bates_prefix (str): Prefix for bates numbering
-            bates_start_number (int): Starting bates number
-            file_naming_start (int): Starting number for file naming (defaults to 1)
-            output_folder (str): Optional output folder (defaults to Processed folder in source parent)
+            source_folder: Source folder to process
+            bates_prefix: Prefix for bates numbering
+            bates_start_number: Starting bates number
+            file_naming_start: Starting number for file naming (defaults to 1)
+            output_folder: Optional output folder (defaults to Processed folder in source parent)
             log_callback: Optional callback for logging messages
             bates_numberer: Pre-configured BatesNumberer instance (optional)
-            file_limit (int): Optional limit on number of files to process (None for all)
+            file_limit: Optional limit on number of files to process (None for all)
         """
         self.source_folder = Path(source_folder)
         self.bates_prefix = bates_prefix

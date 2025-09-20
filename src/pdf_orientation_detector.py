@@ -154,6 +154,7 @@ class PDFOrientationDetector:
         """
         Analyze text content to determine correct orientation
         Enhanced approach - multiple text extraction methods for better compatibility
+        NEW: Added text direction analysis for content-level rotation detection
 
         Args:
             page: PyMuPDF page object
@@ -172,7 +173,13 @@ class PDFOrientationDetector:
                 self.log(f"      No text content found, keeping current rotation {current_rotation}°")
                 return current_rotation
 
-            # Use improved heuristics
+            # NEW: Analyze text direction for content-level rotation detection
+            text_direction_result = self._analyze_text_direction_for_rotation(page)
+            if text_direction_result != current_rotation:
+                self.log(f"      Text direction analysis suggests rotation: {text_direction_result}°")
+                return text_direction_result
+
+            # Use improved heuristics as fallback
             return self._determine_orientation_conservative(text_data, page.rect, current_rotation)
 
         except Exception as e:
@@ -244,6 +251,289 @@ class PDFOrientationDetector:
 
         return text_data
 
+    def _analyze_text_direction_for_rotation(self, page) -> int:
+        """
+        Analyze text direction to detect content-level rotation (when page rotation = 0° but text is rotated)
+
+        This method specifically handles landscape_content_rotated files where:
+        - Page rotation = 0° (page itself is not rotated)
+        - But text content is rotated within the page (detected via text direction analysis)
+
+        Args:
+            page: PyMuPDF page object
+
+        Returns:
+            int: Suggested rotation angle based on text direction analysis
+        """
+        try:
+            current_rotation = page.rotation
+
+            # Get text blocks with direction analysis
+            text_dict = page.get_text("dict")
+            if not text_dict or 'blocks' not in text_dict:
+                return current_rotation
+
+            # Analyze text direction across all blocks
+            total_horizontal_lines = 0
+            total_vertical_lines = 0
+            total_blocks = 0
+
+            for block in text_dict['blocks']:
+                if 'lines' in block:
+                    horizontal_lines = 0
+                    vertical_lines = 0
+
+                    for line in block['lines']:
+                        if 'spans' in line:
+                            # Analyze line direction based on bbox aspect ratio
+                            for span in line['spans']:
+                                if 'bbox' in span:
+                                    x0, y0, x1, y1 = span['bbox']
+                                    width = x1 - x0
+                                    height = y1 - y0
+
+                                    # If line is much taller than wide, it's vertical text
+                                    if height > width * 1.5:  # Height is 1.5x+ the width
+                                        vertical_lines += 1
+                                    else:
+                                        horizontal_lines += 1
+
+                    total_horizontal_lines += horizontal_lines
+                    total_vertical_lines += vertical_lines
+                    total_blocks += 1
+
+            if total_blocks == 0:
+                return current_rotation
+
+            # Calculate ratios
+            total_lines = total_horizontal_lines + total_vertical_lines
+            if total_lines == 0:
+                return current_rotation
+
+            vertical_ratio = total_vertical_lines / total_lines
+            horizontal_ratio = total_horizontal_lines / total_lines
+
+            self.log(f"      Text direction analysis: {horizontal_ratio:.1f} horizontal, {vertical_ratio:.1f} vertical ({total_lines} lines)")
+
+            # NEW: Content-level rotation detection for 0° page rotation
+            if current_rotation == 0:
+                # Case 1: Mostly vertical text with 0° page rotation = content is rotated 90° or 270°
+                if vertical_ratio > 0.7:  # 70%+ vertical text
+                    # ENHANCED: Better distinction between 90° and 270° based on text positioning
+                    suggested_rotation = self._determine_90_vs_270_rotation(page, text_dict)
+                    self.log(f"      Content rotation detected: 0° page + vertical text → suggest {suggested_rotation}° rotation")
+                    return suggested_rotation
+
+                # Case 2: Check for 180° content rotation (horizontal text that reads upside down)
+                elif horizontal_ratio > 0.7:  # 70%+ horizontal text
+                    # For 180° content rotation, we need to check if text appears in expected reading position
+                    # If horizontal text is positioned unusually (e.g., at bottom of page), it might be 180° rotated
+                    text_positions = []
+                    for block in text_dict['blocks']:
+                        if 'lines' in block:
+                            for line in block['lines']:
+                                if 'spans' in line:
+                                    for span in line['spans']:
+                                        if 'bbox' in span:
+                                            bbox = span['bbox']
+                                            # Normalize Y position (0 = top, 1 = bottom)
+                                            y_center = (bbox[1] + bbox[3]) / 2
+                                            y_normalized = y_center / page.rect.height
+                                            text_positions.append(y_normalized)
+
+                    if text_positions:
+                        avg_y_position = sum(text_positions) / len(text_positions)
+                        # If text is mostly in bottom half of page (> 0.6), it might be 180° rotated
+                        if avg_y_position > 0.6:
+                            self.log(f"      Content rotation detected: horizontal text at bottom (avg y: {avg_y_position:.2f}) → suggest 180° rotation")
+                            return 180
+
+            return current_rotation
+
+        except Exception as e:
+            self.log(f"      Text direction analysis failed: {str(e)}")
+            return page.rotation
+
+    def _determine_90_vs_270_rotation(self, page, text_dict) -> int:
+        """
+        Determine whether vertical text should be rotated 90° or 270°
+
+        This uses multiple strategies to distinguish between:
+        - 90° content rotation (text reads top-to-bottom)
+        - 270° content rotation (text reads bottom-to-top)
+
+        Args:
+            page: PyMuPDF page object
+            text_dict: Text dictionary from page.get_text("dict")
+
+        Returns:
+            int: 90 or 270
+        """
+        try:
+            page_rect = page.rect
+
+            # Strategy 1: Analyze text bounding box orientation
+            bbox_result = self._analyze_bbox_orientation(text_dict, page_rect)
+            if bbox_result is not None:
+                return bbox_result
+
+            # Strategy 2: If we have multiple text blocks, analyze flow direction
+            flow_result = self._analyze_text_flow_direction(text_dict, page_rect)
+            if flow_result is not None:
+                return flow_result
+
+            # Strategy 3: Fallback to position-based analysis
+            return self._fallback_position_based_rotation(text_dict, page_rect)
+
+        except Exception as e:
+            self.log(f"      90° vs 270° determination failed: {str(e)}")
+            return 90  # Default fallback
+
+    def _analyze_bbox_orientation(self, text_dict, page_rect) -> Optional[int]:
+        """Analyze text bounding box orientation to determine rotation"""
+        try:
+            for block in text_dict['blocks']:
+                if 'lines' in block:
+                    for line in block['lines']:
+                        if 'spans' in line:
+                            for span in line['spans']:
+                                if 'bbox' in span:
+                                    bbox = span['bbox']
+                                    width = bbox[2] - bbox[0]
+                                    height = bbox[3] - bbox[1]
+
+                                    # If text bounding box is taller than wide, it's likely vertical
+                                    # The position can help determine the rotation
+                                    if height > width:
+                                        x_center = (bbox[0] + bbox[2]) / 2
+                                        y_center = (bbox[1] + bbox[3]) / 2
+
+                                        x_normalized = x_center / page_rect.width
+                                        y_normalized = y_center / page_rect.height
+
+                                        self.log(f"      Bbox analysis: vertical text at x={x_normalized:.2f}, y={y_normalized:.2f}")
+
+                                        # For vertical text, use position with a bias towards 90°
+                                        if x_normalized < 0.5:
+                                            self.log(f"      Vertical text on left side → suggesting 90° rotation")
+                                            return 90
+                                        else:
+                                            self.log(f"      Vertical text on right side → suggesting 270° rotation")
+                                            return 270
+
+            return None
+
+        except Exception as e:
+            self.log(f"      Bbox analysis failed: {str(e)}")
+            return None
+
+    def _analyze_text_flow_direction(self, text_dict, page_rect) -> Optional[int]:
+        """Analyze text flow direction by looking at multiple text blocks"""
+        try:
+            text_positions = []
+
+            # Collect all text positions
+            for block in text_dict['blocks']:
+                if 'lines' in block:
+                    for line in block['lines']:
+                        if 'spans' in line:
+                            for span in line['spans']:
+                                if 'bbox' in span:
+                                    bbox = span['bbox']
+                                    x_center = (bbox[0] + bbox[2]) / 2
+                                    y_center = (bbox[1] + bbox[3]) / 2
+
+                                    x_normalized = x_center / page_rect.width
+                                    y_normalized = y_center / page_rect.height
+
+                                    text_positions.append((x_normalized, y_normalized))
+
+            if len(text_positions) < 2:
+                return None
+
+            # Sort by Y position to understand reading order
+            sorted_by_y = sorted(text_positions, key=lambda pos: pos[1])
+
+            # Calculate Y progression
+            y_progressions = []
+            for i in range(1, len(sorted_by_y)):
+                prev_y = sorted_by_y[i-1][1]
+                curr_y = sorted_by_y[i][1]
+                y_progressions.append(curr_y - prev_y)
+
+            avg_progression = sum(y_progressions) / len(y_progressions)
+
+            self.log(f"      Text flow analysis: avg y progression={avg_progression:.3f}")
+
+            # Determine rotation based on flow direction
+            if avg_progression > 0:
+                self.log(f"      Text flows top-to-bottom → suggesting 90° rotation")
+                return 90
+            else:
+                self.log(f"      Text flows bottom-to-top → suggesting 270° rotation")
+                return 270
+
+        except Exception as e:
+            self.log(f"      Text flow analysis failed: {str(e)}")
+            return None
+
+    def _fallback_position_based_rotation(self, text_dict, page_rect) -> int:
+        """Fallback method using positioning when other analyses fail"""
+        try:
+            text_positions = []
+
+            # Collect positions
+            for block in text_dict['blocks']:
+                if 'lines' in block:
+                    for line in block['lines']:
+                        if 'spans' in line:
+                            for span in line['spans']:
+                                if 'bbox' in span:
+                                    bbox = span['bbox']
+                                    x_center = (bbox[0] + bbox[2]) / 2
+                                    y_center = (bbox[1] + bbox[3]) / 2
+
+                                    x_normalized = x_center / page_rect.width
+                                    y_normalized = y_center / page_rect.height
+
+                                    text_positions.append((x_normalized, y_normalized))
+
+            if not text_positions:
+                return 90
+
+            # Calculate averages
+            avg_x = sum(pos[0] for pos in text_positions) / len(text_positions)
+            avg_y = sum(pos[1] for pos in text_positions) / len(text_positions)
+
+            self.log(f"      Fallback positioning analysis: avg x={avg_x:.2f}, avg y={avg_y:.2f}")
+
+            # Use quadrant analysis for better accuracy
+            if avg_x < 0.33:
+                # Left third → likely 90°
+                self.log(f"      Text in left third → suggesting 90° rotation")
+                return 90
+            elif avg_x > 0.67:
+                # Right third → likely 270°
+                self.log(f"      Text in right third → suggesting 270° rotation")
+                return 270
+            else:
+                # Center third → use Y position with bias towards 90°
+                if avg_y < 0.4:
+                    self.log(f"      Text centered but upper → suggesting 90° rotation")
+                    return 90
+                elif avg_y > 0.6:
+                    self.log(f"      Text centered but lower → suggesting 270° rotation")
+                    return 270
+                else:
+                    # Dead center → default to 90°
+                    self.log(f"      Text centered exactly → defaulting to 90° rotation")
+                    return 90
+
+        except Exception as e:
+            self.log(f"      Fallback positioning failed: {str(e)}")
+            return 90
+
+    
     def _determine_orientation_conservative(self, text_data: list, page_rect, current_rotation: int) -> int:
         """
         Improved orientation determination - correct obvious rotation issues more aggressively

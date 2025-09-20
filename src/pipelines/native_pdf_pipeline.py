@@ -11,7 +11,7 @@ import shutil
 import os
 import fitz
 from .base_pipeline import BasePipeline
-from pdf_orientation_detector import PDFOrientationDetector
+from ..pdf_orientation_detector import PDFOrientationDetector
 
 class NativePDFPipeline(BasePipeline):
     """Pipeline for processing native PDF documents with universal 28-line grid numbering and advanced orientation detection"""

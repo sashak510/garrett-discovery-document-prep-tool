@@ -381,6 +381,42 @@ class ErrorHandler:
 
         return True
 
+    def sanitize_path(self, path_str: str) -> Path:
+        """Sanitize user input paths to prevent directory traversal"""
+        try:
+            path = Path(path_str).resolve()
+            if not path.is_absolute():
+                path = Path.cwd() / path
+
+            # Additional safety check - ensure path doesn't contain suspicious components
+            if '..' in str(path) or any(char in str(path) for char in ['<', '>', ':', '"', '|', '?', '*']):
+                raise ValidationError("Path contains invalid characters")
+
+            return path
+        except Exception as e:
+            raise ValidationError(f"Invalid path provided: {str(e)}")
+
+    def validate_folder_access(self, folder_path: Path, require_write: bool = False) -> bool:
+        """Validate folder accessibility and permissions"""
+        try:
+            if not folder_path.exists():
+                return False
+
+            if not folder_path.is_dir():
+                return False
+
+            # Check read access
+            if not os.access(folder_path, os.R_OK):
+                return False
+
+            # Check write access if required
+            if require_write and not os.access(folder_path, os.W_OK):
+                return False
+
+            return True
+        except Exception:
+            return False
+
     def get_file_hash(self, file_path: Path) -> str:
         """Get hash of file for duplicate detection"""
         import hashlib

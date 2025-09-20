@@ -83,8 +83,18 @@ class ErrorHandler:
             if not pdf_path.exists():
                 raise ValidationError(f"PDF file does not exist: {pdf_path}")
 
-            if pdf_path.stat().st_size == 0:
+            # Validate file size limits
+            file_size = pdf_path.stat().st_size
+            file_size_mb = file_size / (1024 * 1024)
+
+            if file_size == 0:
                 raise ValidationError(f"PDF file is empty: {pdf_path}")
+
+            if file_size_mb > 200:  # 200MB limit
+                raise ValidationError(f"PDF file too large ({file_size_mb:.1f}MB - limit 200MB): {pdf_path}")
+
+            if file_size_mb < 0.001:  # 1KB minimum
+                raise ValidationError(f"PDF file too small ({file_size_mb:.3f}MB - minimum 1KB): {pdf_path}")
 
             # Check file accessibility
             try:
@@ -92,6 +102,9 @@ class ErrorHandler:
                     test_file.read(1)  # Try to read first byte
             except (PermissionError, IOError) as e:
                 raise ValidationError(f"PDF file is locked or inaccessible: {str(e)}")
+
+            # Check system resources before processing
+            self._check_system_resources(file_size_mb)
 
             # Validate PDF structure
             doc = fitz.open(str(pdf_path))
@@ -123,6 +136,82 @@ class ErrorHandler:
             raise
         except Exception as e:
             raise ValidationError(f"PDF validation failed: {str(e)}")
+
+    def _check_system_resources(self, file_size_mb: float):
+        """Check if system has sufficient resources for processing"""
+        try:
+            # Check available memory
+            import psutil
+            memory = psutil.virtual_memory()
+            available_memory_mb = memory.available / (1024 * 1024)
+
+            # Require at least 3x file size in available memory
+            required_memory_mb = file_size_mb * 3
+            if available_memory_mb < required_memory_mb:
+                raise ValidationError(
+                    f"Insufficient memory: {available_memory_mb:.0f}MB available, "
+                    f"{required_memory_mb:.0f}MB required for {file_size_mb:.1f}MB file"
+                )
+
+            # Check memory usage percentage
+            if memory.percent > 85:
+                raise ValidationError(
+                    f"System memory usage too high: {memory.percent:.1f}% (limit 85%)"
+                )
+
+            # Check available disk space (require at least 2x file size)
+            import shutil
+            disk_usage = shutil.disk_usage('/')
+            free_space_mb = disk_usage.free / (1024 * 1024)
+            required_disk_mb = file_size_mb * 2
+
+            if free_space_mb < required_disk_mb:
+                raise ValidationError(
+                    f"Insufficient disk space: {free_space_mb:.0f}MB available, "
+                    f"{required_disk_mb:.0f}MB required for {file_size_mb:.1f}MB file"
+                )
+
+        except ImportError:
+            # psutil not available, skip resource checks
+            pass
+        except Exception as e:
+            # Don't fail processing due to resource check failures
+            if self.log_callback:
+                self.log_callback(f"Resource check warning: {str(e)}")
+
+    def validate_processing_environment(self, source_folder: Path, output_folder: Path) -> List[str]:
+        """Validate the entire processing environment"""
+        errors = []
+
+        # Validate source folder
+        if not source_folder.exists():
+            errors.append(f"Source folder does not exist: {source_folder}")
+        elif not source_folder.is_dir():
+            errors.append(f"Source path is not a directory: {source_folder}")
+
+        # Validate output folder
+        if output_folder.exists() and not output_folder.is_dir():
+            errors.append(f"Output path exists but is not a directory: {output_folder}")
+
+        # Check write permissions for output folder
+        try:
+            if not output_folder.exists():
+                output_folder.mkdir(parents=True, exist_ok=True)
+            test_file = output_folder / ".write_test"
+            test_file.touch()
+            test_file.unlink()
+        except (PermissionError, OSError) as e:
+            errors.append(f"Cannot write to output folder: {str(e)}")
+
+        # Check for required dependencies
+        required_modules = ['fitz', 'PIL', 'pytesseract']
+        for module in required_modules:
+            try:
+                __import__(module)
+            except ImportError:
+                errors.append(f"Required module not available: {module}")
+
+        return errors
 
     def validate_file_accessibility(self, file_path: Path) -> Dict[str, Any]:
         """Check if file is accessible and return file info"""

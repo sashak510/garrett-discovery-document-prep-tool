@@ -895,11 +895,23 @@ class GDIDocumentProcessor:
                 if text_length > 0 and text_length < 50:  # Very short text, likely OCR artifacts
                     pages_with_minimal_text += 1
 
+                # Check for rotation - IMPORTANT: NativePDF pipeline needed for rotation correction
+                if page.rotation != 0:
+                    # If any page has rotation, we need NativePDF pipeline for correction
+                    rotation_info = (page.rotation, page_num + 1)
+                    break
+
             # Decision logic:
             # Use NativePDF if: substantial text content OR no images but has text OR has rotation (needs correction)
             # Use ScanImage if: minimal text OR mostly images OR was originally an image file
 
             avg_text_per_page = total_text_length / max(total_pages, 1)
+
+            # Check if we found any rotation that needs correction
+            if 'rotation_info' in locals():
+                rotation_degrees, page_num = rotation_info
+                doc.close()
+                return 'NativePDF', f'Document has rotation ({rotation_degrees}° on page {page_num}) - using PyMuPDF for rotation correction'
 
             doc.close()
 

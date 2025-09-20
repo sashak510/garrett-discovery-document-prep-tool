@@ -38,7 +38,7 @@ def main():
     print()
 
     # Fixed configuration
-    source_folder = "Test Files 2"
+    source_folder = "Test Files 2/Rotations"
     output_folder = "Test files_Processed"
     bates_prefix = "TEST"
     file_limit = args.limit

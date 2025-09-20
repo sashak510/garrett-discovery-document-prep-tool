@@ -1,0 +1,1088 @@
+[
+  {
+    "filename": "Scanned 180.pdf",
+    "file_size_bytes": 5936746,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 2532.0,
+          "height": 1783.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 2532.0,
+          "y1": 1783.0
+        },
+        "rotation": 180,
+        "is_landscape": true,
+        "aspect_ratio": 1.42,
+        "text": {
+          "length": 0,
+          "has_content": false,
+          "char_count": 0,
+          "line_count": 1,
+          "sample": ""
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 1,
+              "bbox": [
+                0.0,
+                0.0,
+                2532.0,
+                1783.0
+              ],
+              "lines": 0
+            }
+          ]
+        },
+        "images": {
+          "count": 1,
+          "details": [
+            {
+              "image_num": 0,
+              "xref": 10,
+              "width": 2532,
+              "height": 1783
+            }
+          ]
+        },
+        "fonts": {
+          "count": 0,
+          "font_names": []
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.4",
+      "title": "",
+      "author": "",
+      "subject": "",
+      "keywords": "",
+      "creator": "",
+      "producer": "macOS Version 15.6.1 (Build 24G90) Quartz PDFContext",
+      "creationDate": "D:20250919172705Z00'00'",
+      "modDate": "D:20250919172705Z00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "Scanned 270.pdf",
+    "file_size_bytes": 5936746,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 1783.0,
+          "height": 2532.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 1783.0,
+          "y1": 2532.0
+        },
+        "rotation": 270,
+        "is_landscape": false,
+        "aspect_ratio": 0.704,
+        "text": {
+          "length": 0,
+          "has_content": false,
+          "char_count": 0,
+          "line_count": 1,
+          "sample": ""
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 1,
+              "bbox": [
+                0.0,
+                0.0,
+                2532.0,
+                1783.0
+              ],
+              "lines": 0
+            }
+          ]
+        },
+        "images": {
+          "count": 1,
+          "details": [
+            {
+              "image_num": 0,
+              "xref": 10,
+              "width": 2532,
+              "height": 1783
+            }
+          ]
+        },
+        "fonts": {
+          "count": 0,
+          "font_names": []
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.4",
+      "title": "",
+      "author": "",
+      "subject": "",
+      "keywords": "",
+      "creator": "",
+      "producer": "macOS Version 15.6.1 (Build 24G90) Quartz PDFContext",
+      "creationDate": "D:20250919172728Z00'00'",
+      "modDate": "D:20250919172728Z00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "Scanned 90.pdf",
+    "file_size_bytes": 5936745,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 1783.0,
+          "height": 2532.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 1783.0,
+          "y1": 2532.0
+        },
+        "rotation": 90,
+        "is_landscape": false,
+        "aspect_ratio": 0.704,
+        "text": {
+          "length": 0,
+          "has_content": false,
+          "char_count": 0,
+          "line_count": 1,
+          "sample": ""
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 1,
+              "bbox": [
+                0.0,
+                0.0,
+                2532.0,
+                1783.0
+              ],
+              "lines": 0
+            }
+          ]
+        },
+        "images": {
+          "count": 1,
+          "details": [
+            {
+              "image_num": 0,
+              "xref": 10,
+              "width": 2532,
+              "height": 1783
+            }
+          ]
+        },
+        "fonts": {
+          "count": 0,
+          "font_names": []
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.4",
+      "title": "",
+      "author": "",
+      "subject": "",
+      "keywords": "",
+      "creator": "",
+      "producer": "macOS Version 15.6.1 (Build 24G90) Quartz PDFContext",
+      "creationDate": "D:20250919172658Z00'00'",
+      "modDate": "D:20250919172658Z00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "landscape_content_rotated_180.pdf",
+    "file_size_bytes": 1723,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 792.0,
+          "height": 612.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 792.0,
+          "y1": 612.0
+        },
+        "rotation": 0,
+        "is_landscape": true,
+        "aspect_ratio": 1.294,
+        "text": {
+          "length": 41,
+          "has_content": true,
+          "char_count": 40,
+          "line_count": 2,
+          "sample": "Landscape Example (Content Rotated 180\u00b0)\n"
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 0,
+              "bbox": [
+                223.72398376464844,
+                300.4739990234375,
+                596.0,
+                325.260009765625
+              ],
+              "lines": 1,
+              "text_direction": {
+                "horizontal_lines": 1,
+                "vertical_lines": 0,
+                "total_lines": 1
+              }
+            }
+          ]
+        },
+        "images": {
+          "count": 0,
+          "details": []
+        },
+        "fonts": {
+          "count": 2,
+          "font_names": [
+            "n/a",
+            "n/a"
+          ]
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "untitled",
+      "author": "anonymous",
+      "subject": "unspecified",
+      "keywords": "",
+      "creator": "ReportLab PDF Library - www.reportlab.com",
+      "producer": "ReportLab PDF Library - www.reportlab.com",
+      "creationDate": "D:20250919200803+00'00'",
+      "modDate": "D:20250919200803+00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "landscape_content_rotated_270.pdf",
+    "file_size_bytes": 1724,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 792.0,
+          "height": 612.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 792.0,
+          "y1": 612.0
+        },
+        "rotation": 0,
+        "is_landscape": true,
+        "aspect_ratio": 1.294,
+        "text": {
+          "length": 41,
+          "has_content": true,
+          "char_count": 40,
+          "line_count": 2,
+          "sample": "Landscape Example (Content Rotated 270\u00b0)\n"
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 0,
+              "bbox": [
+                390.4739990234375,
+                106.0,
+                415.260009765625,
+                478.2760009765625
+              ],
+              "lines": 1,
+              "text_direction": {
+                "horizontal_lines": 0,
+                "vertical_lines": 1,
+                "total_lines": 1
+              }
+            }
+          ]
+        },
+        "images": {
+          "count": 0,
+          "details": []
+        },
+        "fonts": {
+          "count": 2,
+          "font_names": [
+            "n/a",
+            "n/a"
+          ]
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "untitled",
+      "author": "anonymous",
+      "subject": "unspecified",
+      "keywords": "",
+      "creator": "ReportLab PDF Library - www.reportlab.com",
+      "producer": "ReportLab PDF Library - www.reportlab.com",
+      "creationDate": "D:20250919200803+00'00'",
+      "modDate": "D:20250919200803+00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "landscape_content_rotated_90.pdf",
+    "file_size_bytes": 1723,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 792.0,
+          "height": 612.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 792.0,
+          "y1": 612.0
+        },
+        "rotation": 0,
+        "is_landscape": true,
+        "aspect_ratio": 1.294,
+        "text": {
+          "length": 40,
+          "has_content": true,
+          "char_count": 39,
+          "line_count": 2,
+          "sample": "Landscape Example (Content Rotated 90\u00b0)\n"
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 0,
+              "bbox": [
+                376.739990234375,
+                143.7319793701172,
+                401.5260009765625,
+                506.0
+              ],
+              "lines": 1,
+              "text_direction": {
+                "horizontal_lines": 0,
+                "vertical_lines": 1,
+                "total_lines": 1
+              }
+            }
+          ]
+        },
+        "images": {
+          "count": 0,
+          "details": []
+        },
+        "fonts": {
+          "count": 2,
+          "font_names": [
+            "n/a",
+            "n/a"
+          ]
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "untitled",
+      "author": "anonymous",
+      "subject": "unspecified",
+      "keywords": "",
+      "creator": "ReportLab PDF Library - www.reportlab.com",
+      "producer": "ReportLab PDF Library - www.reportlab.com",
+      "creationDate": "D:20250919200803+00'00'",
+      "modDate": "D:20250919200803+00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "landscape_rotated_180.pdf",
+    "file_size_bytes": 1695,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 792.0,
+          "height": 612.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 792.0,
+          "y1": 612.0
+        },
+        "rotation": 180,
+        "is_landscape": true,
+        "aspect_ratio": 1.294,
+        "text": {
+          "length": 33,
+          "has_content": true,
+          "char_count": 32,
+          "line_count": 2,
+          "sample": "Landscape Example (Rotated 180\u00b0)\n"
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 0,
+              "bbox": [
+                100.0,
+                92.73999786376953,
+                399.2858581542969,
+                117.5260009765625
+              ],
+              "lines": 1,
+              "text_direction": {
+                "horizontal_lines": 1,
+                "vertical_lines": 0,
+                "total_lines": 1
+              }
+            }
+          ]
+        },
+        "images": {
+          "count": 0,
+          "details": []
+        },
+        "fonts": {
+          "count": 2,
+          "font_names": [
+            "n/a",
+            "n/a"
+          ]
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "untitled",
+      "author": "anonymous",
+      "subject": "unspecified",
+      "keywords": "",
+      "creator": "ReportLab PDF Library - www.reportlab.com",
+      "producer": "ReportLab PDF Library - www.reportlab.com",
+      "creationDate": "D:20250919200702+00'00'",
+      "modDate": "D:20250919200702+00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "landscape_rotated_270.pdf",
+    "file_size_bytes": 1695,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 792.0,
+          "height": 612.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 792.0,
+          "y1": 612.0
+        },
+        "rotation": 270,
+        "is_landscape": true,
+        "aspect_ratio": 1.294,
+        "text": {
+          "length": 33,
+          "has_content": true,
+          "char_count": 32,
+          "line_count": 2,
+          "sample": "Landscape Example (Rotated 270\u00b0)\n"
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 0,
+              "bbox": [
+                100.0,
+                272.739990234375,
+                399.2858581542969,
+                297.5260009765625
+              ],
+              "lines": 1,
+              "text_direction": {
+                "horizontal_lines": 1,
+                "vertical_lines": 0,
+                "total_lines": 1
+              }
+            }
+          ]
+        },
+        "images": {
+          "count": 0,
+          "details": []
+        },
+        "fonts": {
+          "count": 2,
+          "font_names": [
+            "n/a",
+            "n/a"
+          ]
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "untitled",
+      "author": "anonymous",
+      "subject": "unspecified",
+      "keywords": "",
+      "creator": "ReportLab PDF Library - www.reportlab.com",
+      "producer": "ReportLab PDF Library - www.reportlab.com",
+      "creationDate": "D:20250919200702+00'00'",
+      "modDate": "D:20250919200702+00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "landscape_rotated_90.pdf",
+    "file_size_bytes": 1694,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 792.0,
+          "height": 612.0,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 792.0,
+          "y1": 612.0
+        },
+        "rotation": 90,
+        "is_landscape": true,
+        "aspect_ratio": 1.294,
+        "text": {
+          "length": 32,
+          "has_content": true,
+          "char_count": 31,
+          "line_count": 2,
+          "sample": "Landscape Example (Rotated 90\u00b0)\n"
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 0,
+              "bbox": [
+                100.0,
+                272.739990234375,
+                389.2778625488281,
+                297.5260009765625
+              ],
+              "lines": 1,
+              "text_direction": {
+                "horizontal_lines": 1,
+                "vertical_lines": 0,
+                "total_lines": 1
+              }
+            }
+          ]
+        },
+        "images": {
+          "count": 0,
+          "details": []
+        },
+        "fonts": {
+          "count": 2,
+          "font_names": [
+            "n/a",
+            "n/a"
+          ]
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "untitled",
+      "author": "anonymous",
+      "subject": "unspecified",
+      "keywords": "",
+      "creator": "ReportLab PDF Library - www.reportlab.com",
+      "producer": "ReportLab PDF Library - www.reportlab.com",
+      "creationDate": "D:20250919200702+00'00'",
+      "modDate": "D:20250919200702+00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "native rotated landscape 180.pdf",
+    "file_size_bytes": 126761,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 841.9199829101562,
+          "height": 594.9600219726562,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 841.9199829101562,
+          "y1": 594.9600219726562
+        },
+        "rotation": 180,
+        "is_landscape": true,
+        "aspect_ratio": 1.415,
+        "text": {
+          "length": 0,
+          "has_content": false,
+          "char_count": 0,
+          "line_count": 1,
+          "sample": ""
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 1,
+              "bbox": [
+                28.5,
+                77.010986328125,
+                814.5,
+                519.135986328125
+              ],
+              "lines": 0
+            }
+          ]
+        },
+        "images": {
+          "count": 1,
+          "details": [
+            {
+              "image_num": 0,
+              "xref": 6,
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "fonts": {
+          "count": 0,
+          "font_names": []
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "iu (1280\u00d7720)",
+      "author": "",
+      "subject": "",
+      "keywords": "",
+      "creator": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "producer": "macOS Version 15.6.1 (Build 24G90) Quartz PDFContext",
+      "creationDate": "D:20250919120912Z00'00'",
+      "modDate": "D:20250919120912Z00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "native rotated landscape 270.pdf",
+    "file_size_bytes": 126761,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 594.9600219726562,
+          "height": 841.9199829101562,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 594.9600219726562,
+          "y1": 841.9199829101562
+        },
+        "rotation": 270,
+        "is_landscape": false,
+        "aspect_ratio": 0.707,
+        "text": {
+          "length": 0,
+          "has_content": false,
+          "char_count": 0,
+          "line_count": 1,
+          "sample": ""
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 1,
+              "bbox": [
+                28.5,
+                77.010986328125,
+                814.5,
+                519.135986328125
+              ],
+              "lines": 0
+            }
+          ]
+        },
+        "images": {
+          "count": 1,
+          "details": [
+            {
+              "image_num": 0,
+              "xref": 6,
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "fonts": {
+          "count": 0,
+          "font_names": []
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "iu (1280\u00d7720)",
+      "author": "",
+      "subject": "",
+      "keywords": "",
+      "creator": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "producer": "macOS Version 15.6.1 (Build 24G90) Quartz PDFContext",
+      "creationDate": "D:20250919120922Z00'00'",
+      "modDate": "D:20250919120922Z00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  },
+  {
+    "filename": "native rotated landscape 90.pdf",
+    "file_size_bytes": 126760,
+    "pages": [
+      {
+        "page_number": 1,
+        "rect": {
+          "width": 594.9600219726562,
+          "height": 841.9199829101562,
+          "x0": 0.0,
+          "y0": 0.0,
+          "x1": 594.9600219726562,
+          "y1": 841.9199829101562
+        },
+        "rotation": 90,
+        "is_landscape": false,
+        "aspect_ratio": 0.707,
+        "text": {
+          "length": 0,
+          "has_content": false,
+          "char_count": 0,
+          "line_count": 1,
+          "sample": ""
+        },
+        "text_blocks": {
+          "count": 1,
+          "blocks": [
+            {
+              "block_num": 0,
+              "type": 1,
+              "bbox": [
+                28.5,
+                77.010986328125,
+                814.5,
+                519.135986328125
+              ],
+              "lines": 0
+            }
+          ]
+        },
+        "images": {
+          "count": 1,
+          "details": [
+            {
+              "image_num": 0,
+              "xref": 6,
+              "width": 1280,
+              "height": 720
+            }
+          ]
+        },
+        "fonts": {
+          "count": 0,
+          "font_names": []
+        },
+        "widgets": {
+          "count": 0,
+          "types": []
+        },
+        "links": {
+          "count": 0,
+          "types": []
+        },
+        "has_content_stream": true,
+        "transparency": {
+          "error": "'Page' object has no attribute 'transparency'"
+        },
+        "colorspace": {
+          "error": "'Page' object has no attribute 'colorspace'"
+        }
+      }
+    ],
+    "metadata": {
+      "format": "PDF 1.3",
+      "title": "iu (1280\u00d7720)",
+      "author": "",
+      "subject": "",
+      "keywords": "",
+      "creator": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+      "producer": "macOS Version 15.6.1 (Build 24G90) Quartz PDFContext",
+      "creationDate": "D:20250919120900Z00'00'",
+      "modDate": "D:20250919120900Z00'00'",
+      "trapped": "",
+      "encryption": null
+    },
+    "page_count": 1,
+    "is_encrypted": false,
+    "is_pdf": true,
+    "needs_pass": 0
+  }
+]

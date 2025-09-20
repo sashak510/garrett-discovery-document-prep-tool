@@ -9,6 +9,8 @@ from typing import Optional, Tuple, List
 import tempfile
 import os
 import config
+import gc
+import idna
 
 
 class VectorLineNumberer:
@@ -55,6 +57,11 @@ class VectorLineNumberer:
         self.use_anti_aliasing = True
 
         self.errors = []
+
+        # Memory management for PIL resources
+        self._pil_resource_cache = []  # Simple list for tracking
+        self._max_cache_size = 100  # Maximum cached PIL objects
+        self._cleanup_counter = 0
     
     def log(self, message: str):
         """Log a message using the callback or print"""
@@ -177,6 +184,9 @@ class VectorLineNumberer:
             y: Y position
             is_landscape: Whether the page is landscape (affects font size)
         """
+        img = None
+        img_byte_arr = None
+
         try:
             # Create a small image containing the text
             from PIL import Image, ImageDraw, ImageFont
@@ -193,6 +203,10 @@ class VectorLineNumberer:
 
             # Create image with white opaque background
             img = Image.new('RGBA', (img_width, img_height), (255, 255, 255, 255))
+
+            # Track this PIL resource for cleanup
+            self._pil_resource_cache.append(img)
+
             draw = ImageDraw.Draw(img)
 
             # Try to use a similar font, fallback to default
@@ -241,6 +255,90 @@ class VectorLineNumberer:
         except Exception as e:
             self.log(f"      ❌ Failed to add non-searchable text '{text}': {str(e)}")
             raise
+
+        finally:
+            # Clean up PIL resources
+            self._cleanup_pil_resources(img, img_byte_arr)
+
+    def _cleanup_pil_resources(self, img=None, img_byte_arr=None):
+        """
+        Clean up PIL image resources to prevent memory leaks
+
+        Args:
+            img: PIL Image object to clean up
+            img_byte_arr: BytesIO object to close
+        """
+        try:
+            # Close image if provided
+            if img is not None:
+                try:
+                    img.close()
+                except:
+                    pass
+
+            # Close BytesIO object if provided
+            if img_byte_arr is not None:
+                try:
+                    img_byte_arr.close()
+                except:
+                    pass
+
+            # Periodic cleanup of cache
+            self._cleanup_counter += 1
+            if self._cleanup_counter >= 50:  # Clean up every 50 operations
+                self._force_cleanup_cache()
+                self._cleanup_counter = 0
+
+        except Exception as e:
+            self.log(f"      ⚠️  PIL resource cleanup warning: {str(e)}")
+
+    def _force_cleanup_cache(self):
+        """
+        Force cleanup of cached PIL resources and run garbage collection
+        """
+        try:
+            # Close and clear all cached PIL resources
+            for img in self._pil_resource_cache:
+                try:
+                    img.close()
+                except:
+                    pass
+            self._pil_resource_cache.clear()
+
+            # Force garbage collection
+            gc.collect()
+
+            # Log cleanup (occasionally, to avoid spam)
+            if self._cleanup_counter % 500 == 0:
+                self.log(f"      🧹 Memory cleanup completed")
+
+        except Exception as e:
+            self.log(f"      ⚠️  Cache cleanup warning: {str(e)}")
+
+    def cleanup_all_pil_resources(self):
+        """
+        Comprehensive cleanup of all PIL resources
+        Should be called when processing is complete
+        """
+        try:
+            # Close and clear all cached PIL resources
+            for img in self._pil_resource_cache:
+                try:
+                    img.close()
+                except:
+                    pass
+            self._pil_resource_cache.clear()
+
+            # Force garbage collection
+            gc.collect()
+
+            # Reset counter
+            self._cleanup_counter = 0
+
+            self.log("🧹 All PIL resources cleaned up")
+
+        except Exception as e:
+            self.log(f"⚠️  PIL cleanup warning: {str(e)}")
     
     
     def _add_content_stream_text(self, page, text: str, x: float, y: float):
@@ -795,7 +893,8 @@ Q
 
     def normalize_pdf_orientation(self, input_pdf_path: str, output_pdf_path: str) -> bool:
         """
-        Normalize PDF orientation by setting all page rotations to 0.
+        Normalize PDF orientation by preserving correct rotations while ensuring consistency.
+        This method should NOT override the rotation corrections made earlier in the pipeline.
 
         Args:
             input_pdf_path: Path to input PDF file
@@ -812,23 +911,42 @@ Q
                 self.log(f"❌ Input PDF does not exist: {input_pdf_path}")
                 return False
 
-            self.log(f"🔄 Normalizing PDF orientation (setting rotation to 0): {input_path.name}")
+            self.log(f"🔄 Normalizing PDF orientation (preserving correct rotations): {input_path.name}")
 
             # Open PDF document
             doc = fitz.open(str(input_path))
 
-            # Set all page rotations to 0
-            for page_num in range(len(doc)):
-                page = doc[page_num]
-                if page.rotation != 0:
-                    page.set_rotation(0)
-                    self.log(f"   Page {page_num + 1}: Set rotation to 0")
+            # Instead of blindly setting all rotations to 0, we should:
+            # 1. Only normalize if there are inconsistent rotations within the document
+            # 2. Or if the rotation correction pipeline has already done its job correctly
 
-            # Save the normalized PDF
+            # Check if all pages already have 0 rotation (most common case after correction)
+            all_zero_rotation = all(page.rotation == 0 for page in doc)
+
+            if all_zero_rotation:
+                self.log(f"   All pages already have 0° rotation - no changes needed")
+                # Just copy the file as-is
+                doc.save(str(output_path), garbage=4, deflate=True, clean=True)
+                doc.close()
+                self.log(f"✅ PDF orientation verified: {output_path.name}")
+                return True
+
+            # If there are mixed rotations, log them but don't change them
+            # The rotation correction should have already been applied correctly
+            rotation_counts = {}
+            for page_num, page in enumerate(doc):
+                rotation = page.rotation
+                rotation_counts[rotation] = rotation_counts.get(rotation, 0) + 1
+                if rotation != 0:
+                    self.log(f"   Page {page_num + 1}: Keeping rotation {rotation}° (already corrected)")
+
+            self.log(f"   Rotation distribution: {rotation_counts}")
+
+            # Save the PDF without changing rotations
             doc.save(str(output_path), garbage=4, deflate=True, clean=True)
             doc.close()
 
-            self.log(f"✅ PDF orientation normalized: {output_path.name}")
+            self.log(f"✅ PDF orientation preserved: {output_path.name}")
             return True
 
         except Exception as e:

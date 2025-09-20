@@ -153,7 +153,7 @@ class PDFOrientationDetector:
     def _analyze_page_text_orientation(self, page) -> int:
         """
         Analyze text content to determine correct orientation
-        Improved approach - use dict method for better text extraction
+        Enhanced approach - multiple text extraction methods for better compatibility
 
         Args:
             page: PyMuPDF page object
@@ -164,32 +164,12 @@ class PDFOrientationDetector:
         try:
             current_rotation = page.rotation
 
-            # Extract text using dict method which is more reliable
-            text_dict = page.get_text("dict")
-
-            if not text_dict or 'blocks' not in text_dict:
-                # No text found, can't determine orientation - keep current
-                return current_rotation
-
-            # Extract text blocks from dict format
-            text_data = []
-            for block in text_dict['blocks']:
-                if 'lines' in block:
-                    for line in block['lines']:
-                        if 'spans' in line:
-                            for span in line['spans']:
-                                if 'text' in span and span['text'].strip():
-                                    # Calculate span dimensions
-                                    x0, y0 = span['bbox'][0], span['bbox'][1]
-                                    x1, y1 = span['bbox'][2], span['bbox'][3]
-                                    text_data.append({
-                                        'text': span['text'],
-                                        'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
-                                        'width': x1 - x0,
-                                        'height': y1 - y0
-                                    })
+            # ENHANCED: Try multiple text extraction methods
+            text_data = self._extract_text_data_multiple_methods(page)
 
             if not text_data:
+                # No text found, can't determine orientation - keep current
+                self.log(f"      No text content found, keeping current rotation {current_rotation}°")
                 return current_rotation
 
             # Use improved heuristics
@@ -198,6 +178,71 @@ class PDFOrientationDetector:
         except Exception as e:
             self.log(f"      Text analysis failed: {str(e)}")
             return page.rotation
+
+    def _extract_text_data_multiple_methods(self, page):
+        """
+        Enhanced text extraction using multiple methods for better compatibility
+        """
+        text_data = []
+
+        # Method 1: Dict extraction (most reliable for structured text)
+        try:
+            text_dict = page.get_text("dict")
+            if text_dict and 'blocks' in text_dict:
+                for block in text_dict['blocks']:
+                    if 'lines' in block:
+                        for line in block['lines']:
+                            if 'spans' in line:
+                                for span in line['spans']:
+                                    if 'text' in span and span['text'].strip():
+                                        x0, y0 = span['bbox'][0], span['bbox'][1]
+                                        x1, y1 = span['bbox'][2], span['bbox'][3]
+                                        text_data.append({
+                                            'text': span['text'],
+                                            'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                                            'width': x1 - x0,
+                                            'height': y1 - y0
+                                        })
+        except Exception as e:
+            self.log(f"      Dict extraction failed: {str(e)}")
+
+        # Method 2: Raw text extraction with position analysis
+        if not text_data:
+            try:
+                blocks = page.get_text("blocks")
+                for block in blocks:
+                    if len(block) >= 4:  # x0, y0, x1, y1, text, ...
+                        x0, y0, x1, y1, text = block[:5]
+                        if text.strip():
+                            text_data.append({
+                                'text': text,
+                                'x0': x0, 'y0': y0, 'x1': x1, 'y1': y1,
+                                'width': x1 - x0,
+                                'height': y1 - y0
+                            })
+            except Exception as e:
+                self.log(f"      Block extraction failed: {str(e)}")
+
+        # Method 3: Simple text extraction as fallback
+        if not text_data:
+            try:
+                text = page.get_text()
+                if text.strip():
+                    # For simple text, create a single block covering most of the page
+                    page_rect = page.rect
+                    text_data.append({
+                        'text': text[:100],  # Limit text length
+                        'x0': page_rect.x0 + 50,
+                        'y0': page_rect.y0 + 50,
+                        'x1': page_rect.x1 - 50,
+                        'y1': page_rect.y1 - 50,
+                        'width': page_rect.width - 100,
+                        'height': page_rect.height - 100
+                    })
+            except Exception as e:
+                self.log(f"      Simple extraction failed: {str(e)}")
+
+        return text_data
 
     def _determine_orientation_conservative(self, text_data: list, page_rect, current_rotation: int) -> int:
         """
@@ -498,11 +543,10 @@ class PDFOrientationDetector:
             for page_num in range(len(doc)):
                 page = doc[page_num]
                 current_rotation = page.rotation
-                new_rotation = (current_rotation + rotation) % 360
-                page.set_rotation(new_rotation)
+                page.set_rotation(rotation)  # Set absolute rotation, don't add
 
                 if page_num < 3:  # Log first 3 pages
-                    self.log(f"   Page {page_num + 1}: rotation {current_rotation}° → {new_rotation}°")
+                    self.log(f"   Page {page_num + 1}: rotation {current_rotation}° → {rotation}°")
 
             doc.save(output_pdf_path, garbage=4, deflate=True, clean=True)
             doc.close()
@@ -561,14 +605,17 @@ class PDFOrientationDetector:
                         # Currently landscape-oriented, would become portrait after correction
                         corrected_aspect_ratio = page_width / page_height
 
-                    # If the corrected aspect ratio is reasonable (landscape around 1.3-1.4), correct it
-                    if 1.2 <= corrected_aspect_ratio <= 1.5:
-                        # This would create a reasonable landscape document - correct to 0°
+                    # ENHANCED: More aggressive correction for native PDFs with obvious rotation issues
+                    # Most documents should be in portrait orientation (0°) for reading
+                    # If we have a reasonable aspect ratio after correction, apply it
+                    if 1.0 <= corrected_aspect_ratio <= 2.0:
+                        # This would create a readable document - correct to 0°
                         suggested_rotation = 0
                         needs_correction = True
-                        self.log(f"   Page {page_num + 1}: Aggressive correction - {current_rotation}° → 0° (would create reasonable landscape {corrected_aspect_ratio:.2f})")
+                        self.log(f"   Page {page_num + 1}: Enhanced correction - {current_rotation}° → 0° (creates readable aspect ratio {corrected_aspect_ratio:.2f})")
                     else:
-                        # Unusual aspect ratio - keep current rotation for safety
+                        # Unusual aspect ratio - check if it's a special case
+                        # For very wide or very tall documents, keep current rotation
                         needs_correction = False
                         self.log(f"   Page {page_num + 1}: Keeping {current_rotation}° rotation (unusual aspect ratio {corrected_aspect_ratio:.2f})")
 
